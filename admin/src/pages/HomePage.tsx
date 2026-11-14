@@ -10,6 +10,11 @@ type BreakdownRow = {
   count: number;
 };
 
+type DayCount = {
+  date: string;
+  count: number;
+};
+
 type StatsOverview = {
   days: number;
   entityId: string | null;
@@ -24,11 +29,74 @@ type StatsOverview = {
   };
   analytics: {
     successfulSubmissions: number;
+    submissionsByDay: DayCount[];
     bySeller: BreakdownRow[];
     byLocation: BreakdownRow[];
     byCategory: BreakdownRow[];
   };
 };
+
+function formatChartDay(date: string) {
+  const [, month, day] = date.split("-");
+  return `${Number(day)}/${Number(month)}`;
+}
+
+function SubmissionsChart({
+  days,
+  series,
+}: {
+  days: number;
+  series: DayCount[];
+}) {
+  const max = Math.max(0, ...series.map((row) => row.count));
+  const showEvery = series.length > 14 ? Math.ceil(series.length / 8) : 1;
+
+  return (
+    <div className="stats-chart">
+      <div className="stats-chart-header">
+        <h3 style={{ margin: 0, fontSize: "1rem" }}>Inzendingen per dag</h3>
+        <p className="muted" style={{ margin: 0 }}>
+          Laatste {days} dagen
+        </p>
+      </div>
+      {series.length === 0 || max === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>
+          Nog geen inzendingen in deze periode
+        </p>
+      ) : (
+        <div className="stats-chart-body" role="img" aria-label="Grafiek succesvolle inzendingen per dag">
+          <div className="stats-chart-bars">
+            {series.map((row, index) => {
+              const height = max > 0 ? (row.count / max) * 100 : 0;
+              const showLabel =
+                index % showEvery === 0 || index === series.length - 1;
+              return (
+                <div key={row.date} className="stats-chart-col">
+                  <div className="stats-chart-bar-wrap">
+                    <div
+                      className="stats-chart-bar"
+                      style={{ height: `${Math.max(height, row.count > 0 ? 4 : 0)}%` }}
+                      title={`${formatChartDay(row.date)}: ${row.count}`}
+                    />
+                  </div>
+                  <span
+                    className={
+                      showLabel
+                        ? "stats-chart-label"
+                        : "stats-chart-label stats-chart-label-spacer"
+                    }
+                  >
+                    {showLabel ? formatChartDay(row.date) : null}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function BreakdownTable({
   title,
@@ -240,12 +308,19 @@ export function HomePage() {
                 </p>
               </div>
 
-              <div className="stats-hero-metric">
-                <span className="stats-card-label">Succesvolle inzendingen</span>
-                <strong className="stats-card-value">
-                  {overview.analytics.successfulSubmissions}
-                </strong>
+              <div className="stats-cards stats-cards-single">
+                <div className="stats-card">
+                  <span className="stats-card-label">Succesvolle inzendingen</span>
+                  <strong className="stats-card-value">
+                    {overview.analytics.successfulSubmissions}
+                  </strong>
+                </div>
               </div>
+
+              <SubmissionsChart
+                days={overview.days}
+                series={overview.analytics.submissionsByDay ?? []}
+              />
 
               <div className="stats-breakdown-grid">
                 <BreakdownTable

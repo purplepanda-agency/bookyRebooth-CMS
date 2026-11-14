@@ -7,6 +7,11 @@ export type StatsBreakdownRow = {
   count: number;
 };
 
+export type StatsDayCount = {
+  date: string;
+  count: number;
+};
+
 export type StatsOverview = {
   days: number;
   entityId: string | null;
@@ -21,6 +26,7 @@ export type StatsOverview = {
   };
   analytics: {
     successfulSubmissions: number;
+    submissionsByDay: StatsDayCount[];
     bySeller: StatsBreakdownRow[];
     byLocation: StatsBreakdownRow[];
     byCategory: StatsBreakdownRow[];
@@ -65,6 +71,43 @@ async function resolveNames(
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
+function dayKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+async function submissionsByDaySeries(
+  where: Prisma.AnalyticsEventWhereInput,
+  to: Date,
+  days: number,
+): Promise<StatsDayCount[]> {
+  const events = await prisma.analyticsEvent.findMany({
+    where,
+    select: { createdAt: true },
+  });
+
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    const key = dayKey(event.createdAt);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const series: StatsDayCount[] = [];
+  const cursor = new Date(to);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setDate(cursor.getDate() - (days - 1));
+
+  for (let i = 0; i < days; i += 1) {
+    const key = dayKey(cursor);
+    series.push({ date: key, count: counts.get(key) ?? 0 });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return series;
+}
+
 async function topBreakdown(
   where: Prisma.AnalyticsEventWhereInput,
   field: "sellerId" | "locationId" | "categoryId",
@@ -106,7 +149,8 @@ export async function getStatsOverview(input: {
   const days = Math.min(Math.max(input.days || 30, 1), 180);
   const to = new Date();
   const from = new Date(to);
-  from.setDate(from.getDate() - days);
+  from.setHours(0, 0, 0, 0);
+  from.setDate(from.getDate() - (days - 1));
 
   const where: Prisma.AnalyticsEventWhereInput = {
     createdAt: { gte: from, lte: to },
@@ -118,18 +162,25 @@ export async function getStatsOverview(input: {
     type: "FORM_SUBMIT_SUCCESS",
   };
 
-  const [typeCounts, successfulSubmissions, bySeller, byLocation, byCategory] =
-    await Promise.all([
-      prisma.analyticsEvent.groupBy({
-        by: ["type"],
-        where,
-        _count: { id: true },
-      }),
-      prisma.analyticsEvent.count({ where: successWhere }),
-      topBreakdown(successWhere, "sellerId", "seller"),
-      topBreakdown(successWhere, "locationId", "location"),
-      topBreakdown(successWhere, "categoryId", "category"),
-    ]);
+  const [
+    typeCounts,
+    successfulSubmissions,
+    submissionsByDay,
+    bySeller,
+    byLocation,
+    byCategory,
+  ] = await Promise.all([
+    prisma.analyticsEvent.groupBy({
+      by: ["type"],
+      where,
+      _count: { id: true },
+    }),
+    prisma.analyticsEvent.count({ where: successWhere }),
+    submissionsByDaySeries(successWhere, to, days),
+    topBreakdown(successWhere, "sellerId", "seller"),
+    topBreakdown(successWhere, "locationId", "location"),
+    topBreakdown(successWhere, "categoryId", "category"),
+  ]);
 
   return {
     days,
@@ -145,6 +196,7 @@ export async function getStatsOverview(input: {
     },
     analytics: {
       successfulSubmissions,
+      submissionsByDay,
       bySeller,
       byLocation,
       byCategory,
