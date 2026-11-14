@@ -524,7 +524,29 @@ publicRouter.post("/:entitySlug/availability/slots", async (req, res, next) => {
  *
  * POST /api/public/:entitySlug/bookings
  */
+function trackSubmitErrorResponse(
+  entityId: string,
+  status: number,
+  error: string,
+  extra?: {
+    sellerId?: string | null;
+    locationId?: string | null;
+    categoryId?: string | null;
+  },
+) {
+  trackEvent({
+    type: "FORM_SUBMIT_ERROR",
+    entityId,
+    sellerId: extra?.sellerId,
+    locationId: extra?.locationId,
+    categoryId: extra?.categoryId,
+    message: `HTTP ${status} · ${error}`,
+  });
+}
+
 publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
+  let entityId: string | null = null;
+
   try {
     const entitySlug = String(req.params.entitySlug).trim().toLowerCase();
     const scope = await resolvePublicEntity(entitySlug, hostFromRequest(req));
@@ -540,32 +562,17 @@ publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
       return;
     }
 
-    let body: ReturnType<typeof publicCreateBookingSchema.parse>;
-    try {
-      body = publicCreateBookingSchema.parse(req.body);
-    } catch (error) {
-      const message =
-        error instanceof ZodError
-          ? error.issues[0]?.message || "Validatie mislukt"
-          : "Validatie mislukt";
-      trackEvent({
-        type: "FORM_SUBMIT_ERROR",
-        entityId: scope.entity.id,
-        message,
-      });
-      throw error;
-    }
+    entityId = scope.entity.id;
+
+    // Validatiefouten (ongeldig e-mail, ontbrekende velden, …) niet als
+    // FORM_SUBMIT_ERROR tellen — alleen echte submit-/verwerkingsfouten.
+    const body = publicCreateBookingSchema.parse(req.body);
 
     if (!isRecaptchaConfigured()) {
-      trackEvent({
-        type: "FORM_SUBMIT_ERROR",
-        entityId: scope.entity.id,
-        message: "reCAPTCHA niet geconfigureerd",
-      });
-      res.status(503).json({
-        error:
-          "reCAPTCHA is niet geconfigureerd op de server (RECAPTCHA_SECRET_KEY)",
-      });
+      const error =
+        "reCAPTCHA is niet geconfigureerd op de server (RECAPTCHA_SECRET_KEY)";
+      trackSubmitErrorResponse(entityId, 503, error);
+      res.status(503).json({ error });
       return;
     }
 
@@ -575,11 +582,7 @@ publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
       remoteIp: req.ip,
     });
     if (!captcha.ok) {
-      trackEvent({
-        type: "FORM_SUBMIT_ERROR",
-        entityId: scope.entity.id,
-        message: captcha.error,
-      });
+      trackSubmitErrorResponse(entityId, 400, captcha.error);
       res.status(400).json({ error: captcha.error });
       return;
     }
@@ -606,11 +609,7 @@ publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
     });
 
     if (!result.ok) {
-      trackEvent({
-        type: "FORM_SUBMIT_ERROR",
-        entityId: scope.entity.id,
-        message: result.error,
-      });
+      trackSubmitErrorResponse(entityId, result.status, result.error);
       res.status(result.status).json({ error: result.error });
       return;
     }
@@ -627,6 +626,12 @@ publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
       booking: result.data,
     });
   } catch (error) {
+    // Validatie (Zod) niet loggen; wel onverwachte submitfouten.
+    if (entityId && !(error instanceof ZodError)) {
+      const message =
+        error instanceof Error ? error.message : "Onbekende submitfout";
+      trackSubmitErrorResponse(entityId, 500, message);
+    }
     next(error);
   }
 });
