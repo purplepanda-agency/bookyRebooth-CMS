@@ -10,9 +10,12 @@ type BreakdownRow = {
   count: number;
 };
 
-type DayCount = {
+type DayMetrics = {
   date: string;
-  count: number;
+  success: number;
+  failed: number;
+  emailError: number;
+  makeError: number;
 };
 
 type StatsOverview = {
@@ -29,7 +32,10 @@ type StatsOverview = {
   };
   analytics: {
     successfulSubmissions: number;
-    submissionsByDay: DayCount[];
+    failedSubmissions: number;
+    emailErrors: number;
+    makeErrors: number;
+    metricsByDay: DayMetrics[];
     bySeller: BreakdownRow[];
     byLocation: BreakdownRow[];
     byCategory: BreakdownRow[];
@@ -41,54 +47,194 @@ function formatChartDay(date: string) {
   return `${Number(day)}/${Number(month)}`;
 }
 
-function SubmissionsChart({
+function MetricsChart({
   days,
   series,
 }: {
   days: number;
-  series: DayCount[];
+  series: DayMetrics[];
 }) {
-  const max = Math.max(0, ...series.map((row) => row.count));
+  const max = Math.max(
+    1,
+    ...series.map((row) =>
+      Math.max(row.success + row.failed, row.emailError, row.makeError),
+    ),
+  );
+  const hasData = series.some(
+    (row) =>
+      row.success > 0 ||
+      row.failed > 0 ||
+      row.emailError > 0 ||
+      row.makeError > 0,
+  );
   const showEvery = series.length > 14 ? Math.ceil(series.length / 8) : 1;
+
+  const width = 640;
+  const height = 180;
+  const padL = 8;
+  const padR = 8;
+  const padT = 12;
+  const padB = 8;
+  const plotW = width - padL - padR;
+  const plotH = height - padT - padB;
+  const slot = series.length > 0 ? plotW / series.length : plotW;
+  const barWidth = Math.max(2, slot * 0.55);
+
+  function xCenter(index: number) {
+    return padL + slot * index + slot / 2;
+  }
+
+  function yValue(value: number) {
+    return padT + plotH - (value / max) * plotH;
+  }
+
+  function linePoints(getter: (row: DayMetrics) => number) {
+    return series
+      .map((row, index) => `${xCenter(index)},${yValue(getter(row))}`)
+      .join(" ");
+  }
 
   return (
     <div className="stats-chart">
       <div className="stats-chart-header">
-        <h3 style={{ margin: 0, fontSize: "1rem" }}>Inzendingen per dag</h3>
+        <h3 style={{ margin: 0, fontSize: "1rem" }}>Inzendingen & fouten per dag</h3>
         <p className="muted" style={{ margin: 0 }}>
           Laatste {days} dagen
         </p>
       </div>
-      {series.length === 0 || max === 0 ? (
+
+      <div className="stats-chart-legend">
+        <span className="stats-chart-legend-item">
+          <span className="stats-chart-swatch stats-chart-swatch-success" />
+          Gelukt
+        </span>
+        <span className="stats-chart-legend-item">
+          <span className="stats-chart-swatch stats-chart-swatch-failed" />
+          Mislukt
+        </span>
+        <span className="stats-chart-legend-item">
+          <span className="stats-chart-swatch stats-chart-swatch-email" />
+          E-mailfouten
+        </span>
+        <span className="stats-chart-legend-item">
+          <span className="stats-chart-swatch stats-chart-swatch-make" />
+          Make-fouten
+        </span>
+      </div>
+
+      {!hasData ? (
         <p className="muted" style={{ margin: 0 }}>
-          Nog geen inzendingen in deze periode
+          Nog geen data in deze periode
         </p>
       ) : (
-        <div className="stats-chart-body" role="img" aria-label="Grafiek succesvolle inzendingen per dag">
-          <div className="stats-chart-bars">
+        <div
+          className="stats-chart-body"
+          role="img"
+          aria-label="Gestapelde staafgrafiek met lijnen voor e-mail- en Make-fouten"
+        >
+          <svg
+            className="stats-chart-svg"
+            viewBox={`0 0 ${width} ${height}`}
+            preserveAspectRatio="none"
+          >
+            {[0.25, 0.5, 0.75, 1].map((fraction) => {
+              const y = padT + plotH * (1 - fraction);
+              return (
+                <line
+                  key={fraction}
+                  className="stats-chart-grid"
+                  x1={padL}
+                  x2={width - padR}
+                  y1={y}
+                  y2={y}
+                />
+              );
+            })}
+
             {series.map((row, index) => {
-              const height = max > 0 ? (row.count / max) * 100 : 0;
+              const successH = (row.success / max) * plotH;
+              const failedH = (row.failed / max) * plotH;
+              const x = xCenter(index) - barWidth / 2;
+              const successY = padT + plotH - successH;
+              const failedY = successY - failedH;
+              const tip = [
+                formatChartDay(row.date),
+                `Gelukt: ${row.success}`,
+                `Mislukt: ${row.failed}`,
+                `E-mail: ${row.emailError}`,
+                `Make: ${row.makeError}`,
+              ].join(" · ");
+
+              return (
+                <g key={row.date}>
+                  <title>{tip}</title>
+                  {row.success > 0 ? (
+                    <rect
+                      className="stats-chart-bar-success"
+                      x={x}
+                      y={successY}
+                      width={barWidth}
+                      height={Math.max(successH, 1)}
+                    />
+                  ) : null}
+                  {row.failed > 0 ? (
+                    <rect
+                      className="stats-chart-bar-failed"
+                      x={x}
+                      y={failedY}
+                      width={barWidth}
+                      height={Math.max(failedH, 1)}
+                    />
+                  ) : null}
+                </g>
+              );
+            })}
+
+            <polyline
+              className="stats-chart-line-email"
+              fill="none"
+              points={linePoints((row) => row.emailError)}
+            />
+            <polyline
+              className="stats-chart-line-make"
+              fill="none"
+              points={linePoints((row) => row.makeError)}
+            />
+
+            {series.map((row, index) => (
+              <circle
+                key={`email-${row.date}`}
+                className="stats-chart-dot-email"
+                cx={xCenter(index)}
+                cy={yValue(row.emailError)}
+                r={series.length > 20 ? 1.5 : 2.2}
+              />
+            ))}
+            {series.map((row, index) => (
+              <circle
+                key={`make-${row.date}`}
+                className="stats-chart-dot-make"
+                cx={xCenter(index)}
+                cy={yValue(row.makeError)}
+                r={series.length > 20 ? 1.5 : 2.2}
+              />
+            ))}
+          </svg>
+          <div className="stats-chart-axis">
+            {series.map((row, index) => {
               const showLabel =
                 index % showEvery === 0 || index === series.length - 1;
               return (
-                <div key={row.date} className="stats-chart-col">
-                  <div className="stats-chart-bar-wrap">
-                    <div
-                      className="stats-chart-bar"
-                      style={{ height: `${Math.max(height, row.count > 0 ? 4 : 0)}%` }}
-                      title={`${formatChartDay(row.date)}: ${row.count}`}
-                    />
-                  </div>
-                  <span
-                    className={
-                      showLabel
-                        ? "stats-chart-label"
-                        : "stats-chart-label stats-chart-label-spacer"
-                    }
-                  >
-                    {showLabel ? formatChartDay(row.date) : null}
-                  </span>
-                </div>
+                <span
+                  key={row.date}
+                  className={
+                    showLabel
+                      ? "stats-chart-axis-label"
+                      : "stats-chart-axis-label stats-chart-axis-label-spacer"
+                  }
+                >
+                  {showLabel ? formatChartDay(row.date) : null}
+                </span>
               );
             })}
           </div>
@@ -259,89 +405,68 @@ export function HomePage() {
       ) : null}
 
       {overview ? (
-        <div className="stack" style={{ gap: "1.25rem" }}>
-          <section className="panel">
-            <div className="panel-body stack">
-              <div>
-                <h2 style={{ fontSize: "1.15rem" }}>Gezondheid</h2>
-                <p className="muted" style={{ marginTop: "0.25rem" }}>
-                  Laatste {overview.days} dagen
-                </p>
+        <section className="panel">
+          <div className="panel-body stack">
+            <div>
+              <h2 style={{ fontSize: "1.15rem" }}>Analytics &amp; gezondheid</h2>
+              <p className="muted" style={{ marginTop: "0.25rem" }}>
+                Boekingsinzendingen en fouten · laatste {overview.days} dagen
+              </p>
+            </div>
+
+            <div className="stats-cards">
+              <div className="stats-card">
+                <span className="stats-card-label">Succesvolle inzendingen</span>
+                <strong className="stats-card-value">
+                  {overview.analytics.successfulSubmissions}
+                </strong>
               </div>
-              <div className="stats-cards">
-                <div className="stats-card">
-                  <span className="stats-card-label">404-fouten</span>
-                  <strong className="stats-card-value">
-                    {overview.health.notFound404}
-                  </strong>
-                </div>
-                <div className="stats-card">
-                  <span className="stats-card-label">Formulierfouten</span>
-                  <strong className="stats-card-value">
-                    {overview.health.formSubmitError}
-                  </strong>
-                </div>
-                <div className="stats-card">
-                  <span className="stats-card-label">E-mailfouten</span>
-                  <strong className="stats-card-value">
-                    {overview.health.emailError}
-                  </strong>
-                </div>
-                <div className="stats-card stats-card-muted">
-                  <span className="stats-card-label">Make-fouten</span>
-                  <strong className="stats-card-value">
-                    {overview.health.makeError}
-                  </strong>
-                  <span className="stats-card-note">Coming soon</span>
-                </div>
+              <div className="stats-card">
+                <span className="stats-card-label">Mislukte inzendingen</span>
+                <strong className="stats-card-value">
+                  {overview.analytics.failedSubmissions ??
+                    overview.health.formSubmitError}
+                </strong>
+              </div>
+              <div className="stats-card">
+                <span className="stats-card-label">E-mailfouten</span>
+                <strong className="stats-card-value">
+                  {overview.analytics.emailErrors ?? overview.health.emailError}
+                </strong>
+              </div>
+              <div className="stats-card stats-card-muted">
+                <span className="stats-card-label">Make-fouten</span>
+                <strong className="stats-card-value">
+                  {overview.analytics.makeErrors ?? overview.health.makeError}
+                </strong>
+                <span className="stats-card-note">Coming soon</span>
               </div>
             </div>
-          </section>
 
-          <section className="panel">
-            <div className="panel-body stack">
-              <div>
-                <h2 style={{ fontSize: "1.15rem" }}>Analytics</h2>
-                <p className="muted" style={{ marginTop: "0.25rem" }}>
-                  Succesvolle boekingsinzendingen · laatste {overview.days}{" "}
-                  dagen
-                </p>
-              </div>
+            <MetricsChart
+              days={overview.days}
+              series={overview.analytics.metricsByDay ?? []}
+            />
 
-              <div className="stats-cards stats-cards-single">
-                <div className="stats-card">
-                  <span className="stats-card-label">Succesvolle inzendingen</span>
-                  <strong className="stats-card-value">
-                    {overview.analytics.successfulSubmissions}
-                  </strong>
-                </div>
-              </div>
-
-              <SubmissionsChart
-                days={overview.days}
-                series={overview.analytics.submissionsByDay ?? []}
+            <div className="stats-breakdown-grid">
+              <BreakdownTable
+                title="Per verkoper"
+                rows={overview.analytics.bySeller}
+                emptyLabel="Nog geen data"
               />
-
-              <div className="stats-breakdown-grid">
-                <BreakdownTable
-                  title="Per verkoper"
-                  rows={overview.analytics.bySeller}
-                  emptyLabel="Nog geen data"
-                />
-                <BreakdownTable
-                  title="Per locatie"
-                  rows={overview.analytics.byLocation}
-                  emptyLabel="Nog geen data"
-                />
-                <BreakdownTable
-                  title="Per categorie"
-                  rows={overview.analytics.byCategory}
-                  emptyLabel="Nog geen data"
-                />
-              </div>
+              <BreakdownTable
+                title="Per locatie"
+                rows={overview.analytics.byLocation}
+                emptyLabel="Nog geen data"
+              />
+              <BreakdownTable
+                title="Per categorie"
+                rows={overview.analytics.byCategory}
+                emptyLabel="Nog geen data"
+              />
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
       ) : null}
     </div>
   );

@@ -12,6 +12,14 @@ export type StatsDayCount = {
   count: number;
 };
 
+export type StatsDayMetrics = {
+  date: string;
+  success: number;
+  failed: number;
+  emailError: number;
+  makeError: number;
+};
+
 export type StatsOverview = {
   days: number;
   entityId: string | null;
@@ -26,7 +34,10 @@ export type StatsOverview = {
   };
   analytics: {
     successfulSubmissions: number;
-    submissionsByDay: StatsDayCount[];
+    failedSubmissions: number;
+    emailErrors: number;
+    makeErrors: number;
+    metricsByDay: StatsDayMetrics[];
     bySeller: StatsBreakdownRow[];
     byLocation: StatsBreakdownRow[];
     byCategory: StatsBreakdownRow[];
@@ -34,6 +45,13 @@ export type StatsOverview = {
 };
 
 const TOP_LIMIT = 10;
+
+const CHART_TYPES: AnalyticsEventType[] = [
+  "FORM_SUBMIT_SUCCESS",
+  "FORM_SUBMIT_ERROR",
+  "EMAIL_ERROR",
+  "MAKE_ERROR",
+];
 
 function countOf(
   rows: Array<{ type: AnalyticsEventType; _count: { id: number } }>,
@@ -78,30 +96,56 @@ function dayKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-async function submissionsByDaySeries(
+async function metricsByDaySeries(
   where: Prisma.AnalyticsEventWhereInput,
   to: Date,
   days: number,
-): Promise<StatsDayCount[]> {
+): Promise<StatsDayMetrics[]> {
   const events = await prisma.analyticsEvent.findMany({
-    where,
-    select: { createdAt: true },
+    where: {
+      ...where,
+      type: { in: CHART_TYPES },
+    },
+    select: { createdAt: true, type: true },
   });
 
-  const counts = new Map<string, number>();
+  const counts = new Map<
+    string,
+    { success: number; failed: number; emailError: number; makeError: number }
+  >();
+
   for (const event of events) {
     const key = dayKey(event.createdAt);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const bucket = counts.get(key) ?? {
+      success: 0,
+      failed: 0,
+      emailError: 0,
+      makeError: 0,
+    };
+
+    if (event.type === "FORM_SUBMIT_SUCCESS") bucket.success += 1;
+    else if (event.type === "FORM_SUBMIT_ERROR") bucket.failed += 1;
+    else if (event.type === "EMAIL_ERROR") bucket.emailError += 1;
+    else if (event.type === "MAKE_ERROR") bucket.makeError += 1;
+
+    counts.set(key, bucket);
   }
 
-  const series: StatsDayCount[] = [];
+  const series: StatsDayMetrics[] = [];
   const cursor = new Date(to);
   cursor.setHours(0, 0, 0, 0);
   cursor.setDate(cursor.getDate() - (days - 1));
 
   for (let i = 0; i < days; i += 1) {
     const key = dayKey(cursor);
-    series.push({ date: key, count: counts.get(key) ?? 0 });
+    const bucket = counts.get(key);
+    series.push({
+      date: key,
+      success: bucket?.success ?? 0,
+      failed: bucket?.failed ?? 0,
+      emailError: bucket?.emailError ?? 0,
+      makeError: bucket?.makeError ?? 0,
+    });
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -162,25 +206,23 @@ export async function getStatsOverview(input: {
     type: "FORM_SUBMIT_SUCCESS",
   };
 
-  const [
-    typeCounts,
-    successfulSubmissions,
-    submissionsByDay,
-    bySeller,
-    byLocation,
-    byCategory,
-  ] = await Promise.all([
-    prisma.analyticsEvent.groupBy({
-      by: ["type"],
-      where,
-      _count: { id: true },
-    }),
-    prisma.analyticsEvent.count({ where: successWhere }),
-    submissionsByDaySeries(successWhere, to, days),
-    topBreakdown(successWhere, "sellerId", "seller"),
-    topBreakdown(successWhere, "locationId", "location"),
-    topBreakdown(successWhere, "categoryId", "category"),
-  ]);
+  const [typeCounts, metricsByDay, bySeller, byLocation, byCategory] =
+    await Promise.all([
+      prisma.analyticsEvent.groupBy({
+        by: ["type"],
+        where,
+        _count: { id: true },
+      }),
+      metricsByDaySeries(where, to, days),
+      topBreakdown(successWhere, "sellerId", "seller"),
+      topBreakdown(successWhere, "locationId", "location"),
+      topBreakdown(successWhere, "categoryId", "category"),
+    ]);
+
+  const successfulSubmissions = countOf(typeCounts, "FORM_SUBMIT_SUCCESS");
+  const failedSubmissions = countOf(typeCounts, "FORM_SUBMIT_ERROR");
+  const emailErrors = countOf(typeCounts, "EMAIL_ERROR");
+  const makeErrors = countOf(typeCounts, "MAKE_ERROR");
 
   return {
     days,
@@ -189,14 +231,17 @@ export async function getStatsOverview(input: {
     to: to.toISOString(),
     health: {
       notFound404: countOf(typeCounts, "NOT_FOUND_404"),
-      formSubmitError: countOf(typeCounts, "FORM_SUBMIT_ERROR"),
-      emailError: countOf(typeCounts, "EMAIL_ERROR"),
-      makeError: 0,
+      formSubmitError: failedSubmissions,
+      emailError: emailErrors,
+      makeError: makeErrors,
       makeComingSoon: true,
     },
     analytics: {
       successfulSubmissions,
-      submissionsByDay,
+      failedSubmissions,
+      emailErrors,
+      makeErrors,
+      metricsByDay,
       bySeller,
       byLocation,
       byCategory,
