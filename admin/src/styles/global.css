@@ -1074,6 +1074,29 @@ textarea:focus {
   pointer-events: none;
 }
 
+.stats-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.stats-date-range {
+  display: flex;
+  align-items: end;
+  gap: 0.65rem;
+  flex-shrink: 0;
+}
+
+.stats-date-range .field {
+  min-width: 148px;
+}
+
+.stats-date-range input[type="date"] {
+  min-width: 148px;
+}
+
 .stats-cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

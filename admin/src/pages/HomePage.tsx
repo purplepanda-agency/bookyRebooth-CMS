@@ -42,16 +42,35 @@ type StatsOverview = {
   };
 };
 
+function formatDateInput(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function defaultDateRange() {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(from.getDate() - 29);
+  return { from: formatDateInput(from), to: formatDateInput(to) };
+}
+
 function formatChartDay(date: string) {
   const [, month, day] = date.split("-");
   return `${Number(day)}/${Number(month)}`;
 }
 
+function formatDisplayDate(date: string) {
+  const [y, month, day] = date.split("-");
+  return `${Number(day)}/${Number(month)}/${y}`;
+}
+
 function MetricsChart({
-  days,
+  periodLabel,
   series,
 }: {
-  days: number;
+  periodLabel: string;
   series: DayMetrics[];
 }) {
   const max = Math.max(
@@ -99,7 +118,7 @@ function MetricsChart({
       <div className="stats-chart-header">
         <h3 style={{ margin: 0, fontSize: "1rem" }}>Inzendingen & fouten per dag</h3>
         <p className="muted" style={{ margin: 0 }}>
-          Laatste {days} dagen
+          {periodLabel}
         </p>
       </div>
 
@@ -287,6 +306,8 @@ export function HomePage() {
   const isSuper = user?.role === "SUPER_ADMIN";
   const [entities, setEntities] = useState<Entity[]>([]);
   const [filterEntityId, setFilterEntityId] = useState("");
+  const [fromDate, setFromDate] = useState(() => defaultDateRange().from);
+  const [toDate, setToDate] = useState(() => defaultDateRange().to);
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -309,13 +330,18 @@ export function HomePage() {
   }, [isSuper]);
 
   useEffect(() => {
+    if (!fromDate || !toDate) return;
+
     let cancelled = false;
 
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ days: "30" });
+        const params = new URLSearchParams({
+          from: fromDate,
+          to: toDate,
+        });
         if (isSuper && filterEntityId) {
           params.set("entityId", filterEntityId);
         }
@@ -337,7 +363,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper, filterEntityId]);
+  }, [isSuper, filterEntityId, fromDate, toDate]);
 
   return (
     <div>
@@ -400,74 +426,106 @@ export function HomePage() {
       </div>
 
       {error ? <p className="error">{error}</p> : null}
-      {loading && !overview ? (
-        <p className="muted">Statistieken laden…</p>
-      ) : null}
 
-      {overview ? (
-        <section className="panel">
-          <div className="panel-body stack">
+      <section className="panel">
+        <div className="panel-body stack">
+          <div className="stats-section-header">
             <div>
               <h2 style={{ fontSize: "1.15rem" }}>Analytics &amp; gezondheid</h2>
               <p className="muted" style={{ marginTop: "0.25rem" }}>
-                Boekingsinzendingen en fouten · laatste {overview.days} dagen
+                Boekingsinzendingen en fouten
+                {overview
+                  ? ` · ${overview.days} dag${overview.days === 1 ? "" : "en"}`
+                  : null}
               </p>
             </div>
-
-            <div className="stats-cards">
-              <div className="stats-card">
-                <span className="stats-card-label">Succesvolle inzendingen</span>
-                <strong className="stats-card-value">
-                  {overview.analytics.successfulSubmissions}
-                </strong>
-              </div>
-              <div className="stats-card">
-                <span className="stats-card-label">Mislukte inzendingen</span>
-                <strong className="stats-card-value">
-                  {overview.analytics.failedSubmissions ??
-                    overview.health.formSubmitError}
-                </strong>
-              </div>
-              <div className="stats-card">
-                <span className="stats-card-label">E-mailfouten</span>
-                <strong className="stats-card-value">
-                  {overview.analytics.emailErrors ?? overview.health.emailError}
-                </strong>
-              </div>
-              <div className="stats-card stats-card-muted">
-                <span className="stats-card-label">Make-fouten</span>
-                <strong className="stats-card-value">
-                  {overview.analytics.makeErrors ?? overview.health.makeError}
-                </strong>
-                <span className="stats-card-note">Coming soon</span>
-              </div>
-            </div>
-
-            <MetricsChart
-              days={overview.days}
-              series={overview.analytics.metricsByDay ?? []}
-            />
-
-            <div className="stats-breakdown-grid">
-              <BreakdownTable
-                title="Per verkoper"
-                rows={overview.analytics.bySeller}
-                emptyLabel="Nog geen data"
-              />
-              <BreakdownTable
-                title="Per locatie"
-                rows={overview.analytics.byLocation}
-                emptyLabel="Nog geen data"
-              />
-              <BreakdownTable
-                title="Per categorie"
-                rows={overview.analytics.byCategory}
-                emptyLabel="Nog geen data"
-              />
+            <div className="stats-date-range">
+              <label className="field" style={{ margin: 0 }}>
+                <span>Van</span>
+                <input
+                  type="date"
+                  value={fromDate}
+                  max={toDate}
+                  onChange={(event) => setFromDate(event.target.value)}
+                />
+              </label>
+              <label className="field" style={{ margin: 0 }}>
+                <span>Tot</span>
+                <input
+                  type="date"
+                  value={toDate}
+                  min={fromDate}
+                  max={formatDateInput(new Date())}
+                  onChange={(event) => setToDate(event.target.value)}
+                />
+              </label>
             </div>
           </div>
-        </section>
-      ) : null}
+
+          {loading && !overview ? (
+            <p className="muted">Statistieken laden…</p>
+          ) : null}
+
+          {overview ? (
+            <>
+              <div className="stats-cards">
+                <div className="stats-card">
+                  <span className="stats-card-label">
+                    Succesvolle inzendingen
+                  </span>
+                  <strong className="stats-card-value">
+                    {overview.analytics.successfulSubmissions}
+                  </strong>
+                </div>
+                <div className="stats-card">
+                  <span className="stats-card-label">Mislukte inzendingen</span>
+                  <strong className="stats-card-value">
+                    {overview.analytics.failedSubmissions ??
+                      overview.health.formSubmitError}
+                  </strong>
+                </div>
+                <div className="stats-card">
+                  <span className="stats-card-label">E-mailfouten</span>
+                  <strong className="stats-card-value">
+                    {overview.analytics.emailErrors ??
+                      overview.health.emailError}
+                  </strong>
+                </div>
+                <div className="stats-card stats-card-muted">
+                  <span className="stats-card-label">Make-fouten</span>
+                  <strong className="stats-card-value">
+                    {overview.analytics.makeErrors ?? overview.health.makeError}
+                  </strong>
+                  <span className="stats-card-note">Coming soon</span>
+                </div>
+              </div>
+
+              <MetricsChart
+                periodLabel={`${formatDisplayDate(overview.from)} – ${formatDisplayDate(overview.to)}`}
+                series={overview.analytics.metricsByDay ?? []}
+              />
+
+              <div className="stats-breakdown-grid">
+                <BreakdownTable
+                  title="Per verkoper"
+                  rows={overview.analytics.bySeller}
+                  emptyLabel="Nog geen data"
+                />
+                <BreakdownTable
+                  title="Per locatie"
+                  rows={overview.analytics.byLocation}
+                  emptyLabel="Nog geen data"
+                />
+                <BreakdownTable
+                  title="Per categorie"
+                  rows={overview.analytics.byCategory}
+                  emptyLabel="Nog geen data"
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 }

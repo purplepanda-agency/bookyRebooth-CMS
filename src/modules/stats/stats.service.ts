@@ -96,9 +96,74 @@ function dayKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MAX_RANGE_DAYS = 366;
+
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+/** Parse YYYY-MM-DD as local calendar day; returns null if invalid. */
+export function parseDateOnly(value: string | null | undefined): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [y, m, d] = value.split("-").map((part) => Number(part));
+  if (!y || !m || !d) return null;
+  const date = new Date(y, m - 1, d);
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) {
+    return null;
+  }
+  return startOfDay(date);
+}
+
+function defaultRange(): { from: Date; to: Date } {
+  const to = startOfDay(new Date());
+  const from = new Date(to);
+  from.setDate(from.getDate() - 29);
+  return { from, to };
+}
+
+function resolveRange(input: {
+  from?: string | null;
+  to?: string | null;
+}): { from: Date; to: Date; days: number } {
+  const defaults = defaultRange();
+  let from = parseDateOnly(input.from) ?? defaults.from;
+  let to = parseDateOnly(input.to) ?? defaults.to;
+
+  if (from.getTime() > to.getTime()) {
+    const swap = from;
+    from = to;
+    to = swap;
+  }
+
+  let days =
+    Math.floor((startOfDay(to).getTime() - startOfDay(from).getTime()) / MS_PER_DAY) +
+    1;
+
+  if (days > MAX_RANGE_DAYS) {
+    from = new Date(to);
+    from.setDate(from.getDate() - (MAX_RANGE_DAYS - 1));
+    days = MAX_RANGE_DAYS;
+  }
+
+  return { from: startOfDay(from), to: endOfDay(to), days };
+}
+
 async function metricsByDaySeries(
   where: Prisma.AnalyticsEventWhereInput,
-  to: Date,
+  from: Date,
   days: number,
 ): Promise<StatsDayMetrics[]> {
   const events = await prisma.analyticsEvent.findMany({
@@ -132,9 +197,7 @@ async function metricsByDaySeries(
   }
 
   const series: StatsDayMetrics[] = [];
-  const cursor = new Date(to);
-  cursor.setHours(0, 0, 0, 0);
-  cursor.setDate(cursor.getDate() - (days - 1));
+  const cursor = startOfDay(from);
 
   for (let i = 0; i < days; i += 1) {
     const key = dayKey(cursor);
@@ -187,14 +250,24 @@ async function topBreakdown(
 }
 
 export async function getStatsOverview(input: {
-  days: number;
+  from?: string | null;
+  to?: string | null;
+  /** @deprecated prefer from/to; kept for backwards compatibility */
+  days?: number;
   entityId?: string | null;
 }): Promise<StatsOverview> {
-  const days = Math.min(Math.max(input.days || 30, 1), 180);
-  const to = new Date();
-  const from = new Date(to);
-  from.setHours(0, 0, 0, 0);
-  from.setDate(from.getDate() - (days - 1));
+  let range = resolveRange({ from: input.from, to: input.to });
+
+  // Legacy ?days= support when no explicit from/to was provided.
+  if (!input.from && !input.to && input.days) {
+    const days = Math.min(Math.max(input.days, 1), MAX_RANGE_DAYS);
+    const to = endOfDay(new Date());
+    const from = startOfDay(new Date());
+    from.setDate(from.getDate() - (days - 1));
+    range = { from, to, days };
+  }
+
+  const { from, to, days } = range;
 
   const where: Prisma.AnalyticsEventWhereInput = {
     createdAt: { gte: from, lte: to },
@@ -213,7 +286,7 @@ export async function getStatsOverview(input: {
         where,
         _count: { id: true },
       }),
-      metricsByDaySeries(where, to, days),
+      metricsByDaySeries(where, from, days),
       topBreakdown(successWhere, "sellerId", "seller"),
       topBreakdown(successWhere, "locationId", "location"),
       topBreakdown(successWhere, "categoryId", "category"),
@@ -227,8 +300,8 @@ export async function getStatsOverview(input: {
   return {
     days,
     entityId: input.entityId || null,
-    from: from.toISOString(),
-    to: to.toISOString(),
+    from: dayKey(from),
+    to: dayKey(to),
     health: {
       notFound404: countOf(typeCounts, "NOT_FOUND_404"),
       formSubmitError: failedSubmissions,

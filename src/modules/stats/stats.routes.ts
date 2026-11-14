@@ -8,13 +8,22 @@ export const statsRouter = Router();
 statsRouter.use(requireAuth);
 
 /**
- * GET /api/stats/overview?days=30&entityId=
+ * GET /api/stats/overview?from=YYYY-MM-DD&to=YYYY-MM-DD&entityId=
+ * Legacy: ?days=30 still works when from/to are omitted.
  * Entity admins are forced to their own entity; super admins may filter.
  */
 statsRouter.get("/overview", async (req, res, next) => {
   try {
-    const daysRaw = typeof req.query.days === "string" ? req.query.days : "30";
-    const days = Number.parseInt(daysRaw, 10);
+    const from =
+      typeof req.query.from === "string" && req.query.from.trim()
+        ? req.query.from.trim()
+        : null;
+    const to =
+      typeof req.query.to === "string" && req.query.to.trim()
+        ? req.query.to.trim()
+        : null;
+    const daysRaw = typeof req.query.days === "string" ? req.query.days : null;
+    const days = daysRaw ? Number.parseInt(daysRaw, 10) : undefined;
     const queryEntityId =
       typeof req.query.entityId === "string" && req.query.entityId.trim()
         ? req.query.entityId.trim()
@@ -27,7 +36,9 @@ statsRouter.get("/overview", async (req, res, next) => {
     }
 
     const overview = await getStatsOverview({
-      days: Number.isFinite(days) ? days : 30,
+      from,
+      to,
+      days: days !== undefined && Number.isFinite(days) ? days : undefined,
       entityId: scope.entityId || null,
     });
 
