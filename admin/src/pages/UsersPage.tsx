@@ -36,8 +36,14 @@ function formatLastLogin(value: string | null | undefined) {
 }
 
 export function UsersPage() {
-  const { user, isSuper, entities, canChooseEntity, fixedEntity } =
-    useAccessibleEntities();
+  const {
+    user,
+    isSuper,
+    entities,
+    canChooseEntity,
+    fixedEntity,
+    selectedEntity,
+  } = useAccessibleEntities();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,9 +52,35 @@ export function UsersPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Superadmin: full catalog. Admin: only entities they are assigned to.
+  // Never expose the superadmin catalog to a scoped admin account.
+  const ownedEntities = useMemo(
+    () => (isSuper ? entities : (user?.entities ?? [])),
+    [isSuper, entities, user?.entities],
+  );
+
+  const ownedIds = useMemo(
+    () => new Set(ownedEntities.map((entity) => entity.id)),
+    [ownedEntities],
+  );
+
+  // Admins manage users in the active entity context, so the picker only
+  // offers that entity (not other dealers they may also belong to).
+  const assignableEntities = useMemo(() => {
+    if (isSuper) return entities;
+    if (selectedEntity && ownedIds.has(selectedEntity.id)) {
+      return [selectedEntity];
+    }
+    return ownedEntities;
+  }, [isSuper, entities, selectedEntity, ownedEntities, ownedIds]);
+
   const entityOptions = useMemo<SelectOption[]>(
-    () => entities.map((entity) => ({ value: entity.id, label: entity.name })),
-    [entities],
+    () =>
+      assignableEntities.map((entity) => ({
+        value: entity.id,
+        label: entity.name,
+      })),
+    [assignableEntities],
   );
 
   async function load() {
@@ -70,7 +102,7 @@ export function UsersPage() {
 
   function defaultEntityIds() {
     if (isSuper) return [];
-    return entities.map((entity) => entity.id);
+    return assignableEntities.map((entity) => entity.id);
   }
 
   function openCreateForm() {
@@ -85,13 +117,42 @@ export function UsersPage() {
 
   function openEditForm(item: User) {
     setEditingId(item.id);
+    const visibleIds = item.entities
+      .map((entity) => entity.id)
+      .filter((entityId) => ownedIds.has(entityId));
+    // Only preselect entities that are offered in the current picker context.
+    const scopedIds = visibleIds.filter((entityId) =>
+      assignableEntities.some((entity) => entity.id === entityId),
+    );
     setForm({
       email: item.email,
       password: "",
       role: item.role,
-      entityIds: item.entities.map((entity) => entity.id),
+      entityIds: scopedIds,
     });
     setShowForm(true);
+  }
+
+  function resolveEntityIdsForSave(existing: User | undefined) {
+    if (form.role === "SUPER_ADMIN") return [];
+
+    if (isSuper) return form.entityIds;
+
+    if (!canChooseEntity && fixedEntity) {
+      return [fixedEntity.id];
+    }
+
+    // Keep assignments the admin owns outside the active entity context.
+    // The picker only toggles membership for the currently selectable entities.
+    const preserved = (existing?.entities ?? [])
+      .map((entity) => entity.id)
+      .filter(
+        (entityId) =>
+          ownedIds.has(entityId) &&
+          !assignableEntities.some((entity) => entity.id === entityId),
+      );
+
+    return [...new Set([...preserved, ...form.entityIds])];
   }
 
   async function onSubmit(event: FormEvent) {
@@ -99,14 +160,10 @@ export function UsersPage() {
     setSaving(true);
     setError(null);
 
-    const entityIds =
-      form.role === "SUPER_ADMIN"
-        ? []
-        : canChooseEntity
-          ? form.entityIds
-          : fixedEntity
-            ? [fixedEntity.id]
-            : form.entityIds;
+    const existing = editingId
+      ? users.find((item) => item.id === editingId)
+      : undefined;
+    const entityIds = resolveEntityIdsForSave(existing);
 
     if (form.role === "ADMIN" && entityIds.length === 0) {
       setError("Kies minstens één entiteit");
@@ -153,8 +210,11 @@ export function UsersPage() {
     }
   }
 
-  const showEntityPicker = form.role === "ADMIN" && canChooseEntity;
+  const showEntityPicker =
+    form.role === "ADMIN" && (isSuper ? entities.length > 0 : canChooseEntity);
   const editingSelf = editingId === user?.id;
+  const activeEntityName =
+    selectedEntity?.name ?? fixedEntity?.name ?? assignableEntities[0]?.name;
 
   return (
     <div>
@@ -241,10 +301,10 @@ export function UsersPage() {
         {showForm ? (
           <form className="drawer stack" onSubmit={onSubmit}>
             <h2>{editingId ? "Gebruiker bewerken" : "Nieuwe gebruiker"}</h2>
-            {!isSuper && !canChooseEntity && fixedEntity && !editingId ? (
+            {!isSuper && !showEntityPicker && activeEntityName ? (
               <p className="muted" style={{ margin: 0 }}>
-                Wordt toegevoegd aan <strong>{fixedEntity.name}</strong> als
-                admin.
+                {editingId ? "Blijft gekoppeld aan" : "Wordt toegevoegd aan"}{" "}
+                <strong>{activeEntityName}</strong> als admin.
               </p>
             ) : null}
             <div className="form-grid two">
