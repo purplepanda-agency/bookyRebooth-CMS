@@ -2,9 +2,9 @@ import type { Weekday } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import {
   checkHourlyAvailability,
-  isAzureConfigured,
+  getEntityCalendarConfig,
   type HourlySlot,
-} from "../../lib/azureGraph.js";
+} from "../../lib/calendar/index.js";
 
 const JS_DAY_TO_WEEKDAY: Weekday[] = [
   "SUNDAY",
@@ -107,12 +107,12 @@ export async function getAvailabilitySlots(
   | { ok: true; data: AvailabilitySlotsResult }
   | { ok: false; status: number; error: string }
 > {
-  if (!isAzureConfigured()) {
+  const calendarConfig = await getEntityCalendarConfig(input.entityId);
+  if (!calendarConfig.ok) {
     return {
       ok: false,
       status: 503,
-      error:
-        "Azure Graph is nog niet geconfigureerd. Zet AZURE_TENANT_ID, AZURE_CLIENT_ID en AZURE_CLIENT_SECRET in de omgeving.",
+      error: calendarConfig.error,
     };
   }
 
@@ -228,6 +228,7 @@ export async function getAvailabilitySlots(
     sellersWithSlots.length === 0 || allCandidateSlots.length === 0
       ? []
       : await checkHourlyAvailability(
+          calendarConfig.config,
           sellersWithSlots.map((seller) => seller.email),
           input.date,
           allCandidateSlots,

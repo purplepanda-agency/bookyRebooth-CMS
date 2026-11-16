@@ -1,4 +1,9 @@
-import { env } from "../config/env.js";
+import type { OutlookCalendarConfig } from "./calendar/types.js";
+
+export type AzureCredentials = Pick<
+  OutlookCalendarConfig,
+  "tenantId" | "clientId" | "clientSecret" | "timeZone"
+>;
 
 type TokenCache = {
   accessToken: string;
@@ -35,33 +40,41 @@ export type AvailabilityResult = {
   detail?: string;
 };
 
-let tokenCache: TokenCache | null = null;
+const tokenCacheByApp = new Map<string, TokenCache>();
 
-export function isAzureConfigured() {
+export function isAzureConfigured(credentials: AzureCredentials | null | undefined) {
   return Boolean(
-    env.AZURE_TENANT_ID && env.AZURE_CLIENT_ID && env.AZURE_CLIENT_SECRET,
+    credentials?.tenantId?.trim() &&
+      credentials?.clientId?.trim() &&
+      credentials?.clientSecret?.trim(),
   );
 }
 
-async function getAccessToken(): Promise<string> {
-  if (!isAzureConfigured()) {
+function cacheKey(credentials: AzureCredentials) {
+  return `${credentials.tenantId}:${credentials.clientId}`;
+}
+
+async function getAccessToken(credentials: AzureCredentials): Promise<string> {
+  if (!isAzureConfigured(credentials)) {
     throw new Error("Azure Graph is niet geconfigureerd");
   }
 
   const now = Date.now();
-  if (tokenCache && tokenCache.expiresAt > now + 60_000) {
-    return tokenCache.accessToken;
+  const key = cacheKey(credentials);
+  const cached = tokenCacheByApp.get(key);
+  if (cached && cached.expiresAt > now + 60_000) {
+    return cached.accessToken;
   }
 
   const body = new URLSearchParams({
-    client_id: env.AZURE_CLIENT_ID!,
-    client_secret: env.AZURE_CLIENT_SECRET!,
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
     scope: "https://graph.microsoft.com/.default",
     grant_type: "client_credentials",
   });
 
   const response = await fetch(
-    `https://login.microsoftonline.com/${env.AZURE_TENANT_ID}/oauth2/v2.0/token`,
+    `https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -79,10 +92,10 @@ async function getAccessToken(): Promise<string> {
     expires_in: number;
   };
 
-  tokenCache = {
+  tokenCacheByApp.set(key, {
     accessToken: data.access_token,
     expiresAt: now + data.expires_in * 1000,
-  };
+  });
 
   return data.access_token;
 }
@@ -101,7 +114,7 @@ const WINDOWS_TO_IANA: Record<string, string> = {
 };
 
 function resolveIanaTimeZone(timeZone?: string) {
-  const raw = (timeZone || env.AZURE_TIMEZONE || "UTC").trim();
+  const raw = (timeZone || "UTC").trim();
   if (!raw) return "UTC";
   const mapped = WINDOWS_TO_IANA[raw.toLowerCase()];
   return mapped || raw;
@@ -224,6 +237,7 @@ function overlapsSlot(
 }
 
 async function getSchedules(
+  credentials: AzureCredentials,
   emails: string[],
   startDate: string,
   startTime: string,
@@ -234,8 +248,8 @@ async function getSchedules(
   ];
   if (uniqueEmails.length === 0) return [];
 
-  const token = await getAccessToken();
-  const timeZone = env.AZURE_TIMEZONE;
+  const token = await getAccessToken(credentials);
+  const timeZone = credentials.timeZone || "Europe/Brussels";
   const end = addMinutesWallClock(
     startDate,
     startTime,
@@ -286,6 +300,7 @@ function findSchedule(schedules: GraphSchedule[], email: string) {
 }
 
 export async function checkCalendarVisibility(
+  credentials: AzureCredentials,
   emails: string[],
 ): Promise<CalendarReachability[]> {
   const uniqueEmails = [
@@ -300,7 +315,13 @@ export async function checkCalendarVisibility(
   const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
   try {
-    const schedules = await getSchedules(uniqueEmails, date, time, 30);
+    const schedules = await getSchedules(
+      credentials,
+      uniqueEmails,
+      date,
+      time,
+      30,
+    );
 
     return uniqueEmails.map((email) => {
       const schedule = findSchedule(schedules, email);
@@ -352,6 +373,7 @@ function isScheduleBusy(
 }
 
 export async function checkAvailabilityAt(
+  credentials: AzureCredentials,
   emails: string[],
   date: string,
   time: string,
@@ -363,10 +385,11 @@ export async function checkAvailabilityAt(
 
   if (uniqueEmails.length === 0) return [];
 
-  const timeZone = env.AZURE_TIMEZONE;
+  const timeZone = credentials.timeZone || "Europe/Brussels";
   const slotStartMs = wallClockToUtcMs(date, time, timeZone);
   const slotEndMs = slotStartMs + durationMinutes * 60_000;
   const schedules = await getSchedules(
+    credentials,
     uniqueEmails,
     date,
     time,
@@ -431,9 +454,11 @@ export type CreateCalendarEventResult = {
 };
 
 export async function createCalendarEvent(
+  credentials: AzureCredentials,
   input: CreateCalendarEventInput,
 ): Promise<CreateCalendarEventResult> {
-  const token = await getAccessToken();
+  const token = await getAccessToken(credentials);
+  const timeZone = credentials.timeZone || "Europe/Brussels";
   const locationDisplay = [input.locationName, input.locationAddress]
     .map((part) => part?.trim())
     .filter(Boolean)
@@ -469,11 +494,11 @@ export async function createCalendarEvent(
         },
         start: {
           dateTime: toGraphDateTime(input.date, input.start),
-          timeZone: env.AZURE_TIMEZONE,
+          timeZone,
         },
         end: {
           dateTime: toGraphDateTime(input.date, input.end),
-          timeZone: env.AZURE_TIMEZONE,
+          timeZone,
         },
         location: {
           displayName: locationDisplay || input.locationName,
@@ -508,6 +533,7 @@ export async function createCalendarEvent(
 
 /** Check multiple hourly slots in one Graph call (window = earliest start → latest end). */
 export async function checkHourlyAvailability(
+  credentials: AzureCredentials,
   emails: string[],
   date: string,
   slots: HourlySlot[],
@@ -528,7 +554,7 @@ export async function checkHourlyAvailability(
   const sorted = [...slots].sort((a, b) => a.start.localeCompare(b.start));
   const windowStart = sorted[0].start;
   const windowEnd = sorted[sorted.length - 1].end;
-  const timeZone = env.AZURE_TIMEZONE;
+  const timeZone = credentials.timeZone || "Europe/Brussels";
   const startMs = wallClockToUtcMs(date, windowStart, timeZone);
   const endMs = wallClockToUtcMs(date, windowEnd, timeZone);
   const durationMinutes = Math.max(
@@ -537,6 +563,7 @@ export async function checkHourlyAvailability(
   );
 
   const schedules = await getSchedules(
+    credentials,
     uniqueEmails,
     date,
     windowStart,

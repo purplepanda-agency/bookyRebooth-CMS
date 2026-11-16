@@ -1,9 +1,11 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
+import { EntityScopeProvider } from "./auth/entityAccess";
 import { AppShell } from "./components/AppShell";
 import { AccountPage } from "./pages/AccountPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
+import { ContentBlocksPage } from "./pages/ContentBlocksPage";
 import { EntitiesPage } from "./pages/EntitiesPage";
 import { FlowBuilderPage } from "./pages/FlowBuilderPage";
 import { FlowsOverviewPage } from "./pages/FlowsOverviewPage";
@@ -37,7 +39,9 @@ export function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <AppShell />
+            <EntityScopeProvider>
+              <AppShell />
+            </EntityScopeProvider>
           </ProtectedRoute>
         }
       >
@@ -52,6 +56,7 @@ export function App() {
         <Route path="categories" element={<CategoriesPage />} />
         <Route path="new-flow" element={<FlowsOverviewPage />} />
         <Route path="new-flow/:id" element={<FlowBuilderPage />} />
+        <Route path="content-blocks" element={<ContentBlocksPage />} />
         <Route path="product-sets" element={<ProductSetsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

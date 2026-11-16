@@ -326,8 +326,59 @@ flowsRouter.put("/:id", async (req, res, next) => {
       return;
     }
 
+    const existingSteps = await prisma.flowStep.findMany({
+      where: { flowId: id },
+      select: { id: true },
+    });
+    const existingStepIds = new Set(existingSteps.map((step) => step.id));
+    const incomingIds = body.steps
+      .map((step) => step.id)
+      .filter((stepId): stepId is string => Boolean(stepId));
+
+    if (incomingIds.some((stepId) => !existingStepIds.has(stepId))) {
+      res.status(400).json({
+        error: "Een of meer stappen horen niet bij deze flow",
+      });
+      return;
+    }
+
+    if (new Set(incomingIds).size !== incomingIds.length) {
+      res.status(400).json({ error: "Dubbele stap-id's in de payload" });
+      return;
+    }
+
     const flow = await prisma.$transaction(async (tx) => {
-      await tx.flowStep.deleteMany({ where: { flowId: id } });
+      await tx.flowStep.deleteMany({
+        where: {
+          flowId: id,
+          ...(incomingIds.length > 0
+            ? { id: { notIn: incomingIds } }
+            : {}),
+        },
+      });
+
+      for (const [index, step] of body.steps.entries()) {
+        if (step.id) {
+          await tx.flowStep.update({
+            where: { id: step.id },
+            data: {
+              type: step.type,
+              sortOrder: index,
+              config: step.config,
+            },
+          });
+        } else {
+          await tx.flowStep.create({
+            data: {
+              flowId: id,
+              type: step.type,
+              sortOrder: index,
+              config: step.config,
+            },
+          });
+        }
+      }
+
       return tx.flow.update({
         where: { id },
         data: {
@@ -335,13 +386,6 @@ flowsRouter.put("/:id", async (req, res, next) => {
           slug: body.slug,
           featuredImage: body.featuredImage ?? null,
           active: body.active,
-          steps: {
-            create: body.steps.map((step, index) => ({
-              type: step.type,
-              sortOrder: index,
-              config: step.config,
-            })),
-          },
         },
         include: stepInclude,
       });

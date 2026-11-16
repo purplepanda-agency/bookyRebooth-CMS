@@ -1,4 +1,4 @@
-import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import { api, uploadMedia } from "../api/client";
 import type {
@@ -80,7 +80,9 @@ const emptyForm: FormState = {
 };
 
 export function SellersPage() {
-  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
+  const { selectedEntityId, selectedEntity, settleEntityTransition } =
+    useAccessibleEntities();
+  const hasLoadedRef = useRef(false);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -91,18 +93,10 @@ export function SellersPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [filterEntityId, setFilterEntityId] = useState("");
   const [sortKey, setSortKey] = useState<SellerSortKey | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
-  const activeEntityId = canChooseEntity
-    ? form.entityId || filterEntityId
-    : fixedEntity?.id || "";
-
-  const mediaEntityKey = useMemo(() => {
-    const selected = entities.find((entity) => entity.id === activeEntityId);
-    return selected?.slug || fixedEntity?.slug || "global";
-  }, [entities, activeEntityId, fixedEntity]);
+  const mediaEntityKey = selectedEntity?.slug || "global";
 
   const availableWeekdays = useMemo(() => {
     const used = new Set(
@@ -176,13 +170,12 @@ export function SellersPage() {
     let cancelled = false;
 
     async function load() {
-      setLoading(true);
+      if (!hasLoadedRef.current) setLoading(true);
       setError(null);
       try {
-        const entityQuery =
-          canChooseEntity && filterEntityId
-            ? `?entityId=${encodeURIComponent(filterEntityId)}`
-            : "";
+        const entityQuery = selectedEntityId
+          ? `?entityId=${encodeURIComponent(selectedEntityId)}`
+          : "";
 
         const [sellersData, locationsData, categoriesData] = await Promise.all([
           api<{ sellers: Seller[] }>(`/sellers${entityQuery}`),
@@ -194,13 +187,17 @@ export function SellersPage() {
           setSellers(sellersData.sellers);
           setLocations(locationsData.locations);
           setCategories(categoriesData.categories);
+          hasLoadedRef.current = true;
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Laden mislukt");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -208,13 +205,12 @@ export function SellersPage() {
     return () => {
       cancelled = true;
     };
-  }, [canChooseEntity, filterEntityId]);
+  }, [selectedEntityId, settleEntityTransition]);
 
   async function reload() {
-    const entityQuery =
-      canChooseEntity && filterEntityId
-        ? `?entityId=${encodeURIComponent(filterEntityId)}`
-        : "";
+    const entityQuery = selectedEntityId
+      ? `?entityId=${encodeURIComponent(selectedEntityId)}`
+      : "";
     const [sellersData, locationsData, categoriesData] = await Promise.all([
       api<{ sellers: Seller[] }>(`/sellers${entityQuery}`),
       api<{ locations: Location[] }>(`/locations${entityQuery}`),
@@ -226,13 +222,12 @@ export function SellersPage() {
   }
 
   async function loadEntityScopedData(entityId: string) {
-    if (!entityId && canChooseEntity) {
+    if (!entityId) {
       setLocations([]);
       setCategories([]);
       return;
     }
-    const query =
-      canChooseEntity && entityId ? `?entityId=${encodeURIComponent(entityId)}` : "";
+    const query = `?entityId=${encodeURIComponent(entityId)}`;
     const [locationsData, categoriesData] = await Promise.all([
       api<{ locations: Location[] }>(`/locations${query}`),
       api<{ categories: Category[] }>(`/categories${query}`),
@@ -242,9 +237,7 @@ export function SellersPage() {
   }
 
   function startCreate() {
-    const entityId = canChooseEntity
-      ? filterEntityId || entities[0]?.id || ""
-      : fixedEntity?.id || "";
+    const entityId = selectedEntityId;
     setEditingId(null);
     setForm({
       ...emptyForm,
@@ -350,7 +343,7 @@ export function SellersPage() {
         endTime: item.endTime,
         locationId: item.locationId,
       })),
-      ...(canChooseEntity && !editingId ? { entityId: form.entityId } : {}),
+      ...(!editingId ? { entityId: selectedEntityId } : {}),
     };
 
     try {
@@ -360,7 +353,7 @@ export function SellersPage() {
           body: JSON.stringify(payload),
         });
       } else {
-        if (canChooseEntity && !form.entityId) {
+        if (!selectedEntityId) {
           setError("Kies een entiteit");
           setSaving(false);
           return;
@@ -454,43 +447,12 @@ export function SellersPage() {
     setForm(emptyForm);
   }
 
-  const tableColSpan = (canChooseEntity ? 7 : 6);
+  const tableColSpan = 6;
 
   function renderSellerFormFields(mode: "create" | "edit") {
     return (
       <>
         <h2>{mode === "edit" ? "Verkoper bewerken" : "Nieuwe verkoper"}</h2>
-
-        {canChooseEntity && mode === "create" ? (
-          <label>
-            Entiteit
-            <select
-              value={form.entityId}
-              onChange={(e) => {
-                const entityId = e.target.value;
-                setForm((prev) => ({
-                  ...prev,
-                  entityId,
-                  primaryLocationId: "",
-                  categoryIds: [],
-                  schedules: prev.schedules.map((item) => ({
-                    ...item,
-                    locationId: "",
-                  })),
-                }));
-                void loadEntityScopedData(entityId);
-              }}
-              required
-            >
-              <option value="">Kies entiteit…</option>
-              {entities.map((entity) => (
-                <option key={entity.id} value={entity.id}>
-                  {entity.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
 
         <div className="form-grid two">
           <label>
@@ -783,23 +745,6 @@ export function SellersPage() {
         </button>
       </div>
 
-      {canChooseEntity ? (
-        <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
-          Filter op entiteit
-          <select
-            value={filterEntityId}
-            onChange={(e) => setFilterEntityId(e.target.value)}
-          >
-            <option value="">Alle entiteiten</option>
-            {entities.map((entity) => (
-              <option key={entity.id} value={entity.id}>
-                {entity.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-
       {error ? (
         <p className="error" style={{ marginBottom: "1rem" }}>
           {error}
@@ -821,7 +766,6 @@ export function SellersPage() {
                   <tr>
                     <th>Status</th>
                     <th>Verkoper</th>
-                    {canChooseEntity ? <th>Entiteit</th> : null}
                     <th>
                       <button
                         type="button"
@@ -883,9 +827,6 @@ export function SellersPage() {
                             <span>{seller.name}</span>
                           </div>
                         </td>
-                        {canChooseEntity ? (
-                          <td>{seller.entity?.name ?? "—"}</td>
-                        ) : null}
                         <td>{seller.primaryLocation?.name ?? "—"}</td>
                         <td>
                           {(seller.categories ?? []).length === 0
@@ -993,7 +934,6 @@ export function SellersPage() {
                   <tr>
                     <th>Status</th>
                     <th>Verkoper</th>
-                    {canChooseEntity ? <th>Entiteit</th> : null}
                     <th>
                       <button
                         type="button"
@@ -1056,9 +996,6 @@ export function SellersPage() {
                             <span>{seller.name}</span>
                           </div>
                         </td>
-                        {canChooseEntity ? (
-                          <td>{seller.entity?.name ?? "—"}</td>
-                        ) : null}
                         <td>{seller.primaryLocation?.name ?? "—"}</td>
                         <td>
                           {(seller.categories ?? []).length === 0

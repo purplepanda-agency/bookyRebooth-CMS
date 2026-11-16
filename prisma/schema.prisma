@@ -12,6 +12,12 @@ enum Role {
   ADMIN
 }
 
+enum CalendarProvider {
+  NONE
+  OUTLOOK
+  GOOGLE
+}
+
 enum Weekday {
   MONDAY
   TUESDAY
@@ -53,6 +59,14 @@ model Entity {
   gtmId           String?    @db.VarChar(32)
   headerScripts   String?    @db.LongText
   footerScripts   String?    @db.LongText
+  calendarProvider          CalendarProvider @default(NONE)
+  calendarTimezone          String           @default("Europe/Brussels") @db.VarChar(64)
+  outlookTenantId           String?          @db.VarChar(64)
+  outlookClientId           String?          @db.VarChar(64)
+  outlookClientSecretEnc    String?          @db.Text
+  googleClientEmail         String?          @db.VarChar(255)
+  googlePrivateKeyEnc       String?          @db.Text
+  googleSubject             String?          @db.VarChar(255)
   active          Boolean    @default(true)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
@@ -61,6 +75,7 @@ model Entity {
   sellers     Seller[]
   categories  Category[]
   flows           Flow[]
+  contentBlocks   ContentBlock[]
   productSets     ProductSet[]    @relation("ProductSetEntities")
   analyticsEvents AnalyticsEvent[]
 }
@@ -199,16 +214,44 @@ model Flow {
 }
 
 model FlowStep {
-  id        String       @id @default(cuid())
-  flowId    String
-  flow      Flow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  type      FlowStepType
-  sortOrder Int          @default(0)
-  config    Json
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id            String               @id @default(cuid())
+  flowId        String
+  flow          Flow                 @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type          FlowStepType
+  sortOrder     Int                  @default(0)
+  config        Json
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  contentBlocks ContentBlockStep[]
 
   @@index([flowId])
+}
+
+model ContentBlock {
+  id          String             @id @default(cuid())
+  title       String             @db.VarChar(200)
+  text        String             @db.Text
+  buttonLabel String?            @db.VarChar(120)
+  buttonUrl   String?            @db.Text
+  active      Boolean            @default(true)
+  sortOrder   Int                @default(0)
+  entityId    String
+  entity      Entity             @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  steps       ContentBlockStep[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([entityId, sortOrder])
+}
+
+model ContentBlockStep {
+  contentBlockId String
+  flowStepId     String
+  contentBlock   ContentBlock @relation(fields: [contentBlockId], references: [id], onDelete: Cascade)
+  flowStep       FlowStep     @relation(fields: [flowStepId], references: [id], onDelete: Cascade)
+
+  @@id([contentBlockId, flowStepId])
+  @@index([flowStepId])
 }
 
 model AnalyticsEvent {
@@ -244,4 +287,3 @@ model ActivityLog {
   @@index([userId, createdAt])
   @@index([entityId, createdAt])
 }
-

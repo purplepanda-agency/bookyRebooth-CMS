@@ -16,6 +16,29 @@ const entityLinkSelect = {
   },
 } as const;
 
+const ACTIVITY_TIME_ZONE = "Europe/Brussels";
+
+function calendarDay(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: ACTIVITY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+async function touchLastLogin(userId: string, lastLoggedInAt: Date | null) {
+  const now = new Date();
+  if (lastLoggedInAt && calendarDay(lastLoggedInAt) === calendarDay(now)) {
+    return;
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { lastLoggedInAt: now },
+  });
+}
+
 export const requireAuth: RequestHandler = (req, res, next) => {
   const header = req.headers.authorization;
 
@@ -47,6 +70,7 @@ export const requireAuth: RequestHandler = (req, res, next) => {
           id: true,
           email: true,
           role: true,
+          lastLoggedInAt: true,
           entities: { select: entityLinkSelect },
         },
       });
@@ -67,6 +91,8 @@ export const requireAuth: RequestHandler = (req, res, next) => {
         res.status(403).json({ error: "Geen actieve entiteit toegewezen" });
         return;
       }
+
+      await touchLastLogin(user.id, user.lastLoggedInAt);
 
       const authUser: AuthUser = {
         id: user.id,

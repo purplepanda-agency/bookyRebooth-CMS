@@ -64,28 +64,36 @@ const confirmationConfigSchema = z.object({
   title: stepTitleSchema,
 });
 
+const optionalStepId = z.string().cuid().optional();
+
 const stepSchema = z.discriminatedUnion("type", [
   z.object({
+    id: optionalStepId,
     type: z.literal("FREE_CHOICE"),
     config: freeChoiceConfigSchema,
   }),
   z.object({
+    id: optionalStepId,
     type: z.literal("PRODUCT_SET"),
     config: productSetConfigSchema,
   }),
   z.object({
+    id: optionalStepId,
     type: z.literal("LOCATIONS"),
     config: locationsConfigSchema,
   }),
   z.object({
+    id: optionalStepId,
     type: z.literal("CATEGORIES"),
     config: categoriesConfigSchema,
   }),
   z.object({
+    id: optionalStepId,
     type: z.literal("SELLERS_AGENDA"),
     config: sellersAgendaConfigSchema,
   }),
   z.object({
+    id: optionalStepId,
     type: z.literal("CONFIRMATION"),
     config: confirmationConfigSchema,
   }),

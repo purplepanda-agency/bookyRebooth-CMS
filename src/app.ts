@@ -15,6 +15,7 @@ import { sellerConnectionsRouter } from "./modules/sellerConnections/sellerConne
 import { publicRouter } from "./modules/public/public.routes.js";
 import { settingsRouter } from "./modules/settings/settings.routes.js";
 import { flowsRouter } from "./modules/flows/flows.routes.js";
+import { contentBlocksRouter } from "./modules/contentBlocks/contentBlocks.routes.js";
 import { mediaRouter } from "./modules/media/media.routes.js";
 import { statsRouter } from "./modules/stats/stats.routes.js";
 import { activityRouter } from "./modules/activity/activity.routes.js";
@@ -56,6 +57,7 @@ export function createApp() {
   app.use("/api/public", publicRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/flows", flowsRouter);
+  app.use("/api/content-blocks", contentBlocksRouter);
   app.use("/api/media", mediaRouter);
   app.use("/api/stats", statsRouter);
   app.use("/api/activity", activityRouter);

@@ -2,8 +2,8 @@ import { prisma } from "../../lib/prisma.js";
 import { trackEvent } from "../../lib/analytics.js";
 import {
   createCalendarEvent,
-  isAzureConfigured,
-} from "../../lib/azureGraph.js";
+  getEntityCalendarConfig,
+} from "../../lib/calendar/index.js";
 import {
   absoluteMediaUrl,
   buildBookingMailData,
@@ -98,12 +98,12 @@ export async function createBooking(
   | { ok: true; data: CreateBookingResult }
   | { ok: false; status: number; error: string }
 > {
-  if (!isAzureConfigured()) {
+  const calendarConfig = await getEntityCalendarConfig(input.entityId);
+  if (!calendarConfig.ok) {
     return {
       ok: false,
       status: 503,
-      error:
-        "Azure Graph is nog niet geconfigureerd. Zet AZURE_TENANT_ID, AZURE_CLIENT_ID en AZURE_CLIENT_SECRET in de omgeving.",
+      error: calendarConfig.error,
     };
   }
 
@@ -179,7 +179,7 @@ export async function createBooking(
   }
 
   try {
-    const event = await createCalendarEvent({
+    const event = await createCalendarEvent(calendarConfig.config, {
       sellerEmail: chosen.email,
       subject,
       bodyHtml: details.join("\n"),

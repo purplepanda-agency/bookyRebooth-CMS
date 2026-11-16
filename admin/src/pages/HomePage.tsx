@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useAccessibleEntities } from "../auth/entityAccess";
@@ -301,8 +301,9 @@ function BreakdownTable({
 }
 
 export function HomePage() {
-  const { user, isSuper, canChooseEntity, entities } = useAccessibleEntities();
-  const [filterEntityId, setFilterEntityId] = useState("");
+  const { user, isSuper, selectedEntity, selectedEntityId, settleEntityTransition } =
+    useAccessibleEntities();
+  const hasLoadedRef = useRef(false);
   const [fromDate, setFromDate] = useState(() => defaultDateRange().from);
   const [toDate, setToDate] = useState(() => defaultDateRange().to);
   const [overview, setOverview] = useState<StatsOverview | null>(null);
@@ -315,27 +316,33 @@ export function HomePage() {
     let cancelled = false;
 
     async function load() {
-      setLoading(true);
+      if (!hasLoadedRef.current) setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams({
           from: fromDate,
           to: toDate,
         });
-        if (filterEntityId) {
-          params.set("entityId", filterEntityId);
+        if (selectedEntityId) {
+          params.set("entityId", selectedEntityId);
         }
         const data = await api<{ overview: StatsOverview }>(
           `/stats/overview?${params.toString()}`,
         );
-        if (!cancelled) setOverview(data.overview);
+        if (!cancelled) {
+          setOverview(data.overview);
+          hasLoadedRef.current = true;
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Laden mislukt");
           setOverview(null);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -343,7 +350,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [filterEntityId, fromDate, toDate]);
+  }, [selectedEntityId, fromDate, toDate, settleEntityTransition]);
 
   return (
     <div>
@@ -352,41 +359,16 @@ export function HomePage() {
           <h1>Overzicht</h1>
           <p>Welkom in de beheeromgeving van Booky CMS.</p>
         </div>
-        {canChooseEntity ? (
-          <div className="page-header-actions">
-            <label className="field" style={{ margin: 0, minWidth: 220 }}>
-              <span>Entiteit</span>
-              <select
-                value={filterEntityId}
-                onChange={(event) => setFilterEntityId(event.target.value)}
-              >
-                <option value="">
-                  {isSuper ? "Alle entiteiten" : "Alle toegewezen entiteiten"}
-                </option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : null}
       </div>
 
       <div className="panel" style={{ marginBottom: "1.25rem" }}>
         <div className="panel-body stack">
           <p>
             Je bent ingelogd als <strong>{user?.email}</strong>
-            {isSuper ? (
-              <> met toegang tot alle entiteiten</>
-            ) : entities.length > 0 ? (
+            {selectedEntity ? (
               <>
                 {" "}
-                voor{" "}
-                <strong>
-                  {entities.map((entity) => entity.name).join(", ")}
-                </strong>
+                voor <strong>{selectedEntity.name}</strong>
               </>
             ) : null}
             .

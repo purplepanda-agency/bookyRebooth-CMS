@@ -5,8 +5,8 @@ import { canAccessEntity, prismaEntityWhere, resolveEntityFilter } from "../../l
 import {
   checkAvailabilityAt,
   checkCalendarVisibility,
-  isAzureConfigured,
-} from "../../lib/azureGraph.js";
+  getEntityCalendarConfig,
+} from "../../lib/calendar/index.js";
 import { getAvailabilitySlots } from "../availability/availability.service.js";
 import {
   availabilityCheckSchema,
@@ -53,14 +53,13 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
       return;
     }
 
-    const configured = isAzureConfigured();
+    const calendarConfig = await getEntityCalendarConfig(filter.entityId);
     const sellers = await loadSellersForScope(filter.entityId);
 
-    if (!configured) {
+    if (!calendarConfig.ok) {
       res.json({
         configured: false,
-        message:
-          "Azure Graph is nog niet geconfigureerd. Zet AZURE_TENANT_ID, AZURE_CLIENT_ID en AZURE_CLIENT_SECRET in de omgeving.",
+        message: calendarConfig.error,
         connections: sellers.map((seller) => ({
           sellerId: seller.id,
           name: seller.name,
@@ -69,13 +68,14 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
           entity: seller.entity,
           visible: false,
           status: "Agenda niet bereikbaar",
-          detail: "Azure niet geconfigureerd",
+          detail: calendarConfig.error,
         })),
       });
       return;
     }
 
     const visibility = await checkCalendarVisibility(
+      calendarConfig.config,
       sellers.map((seller) => seller.email),
     );
     const byEmail = new Map(
@@ -118,16 +118,15 @@ sellerConnectionsRouter.post("/availability-test", async (req, res, next) => {
       return;
     }
 
-    if (!isAzureConfigured()) {
-      res.status(503).json({
-        error:
-          "Azure Graph is nog niet geconfigureerd. Zet AZURE_TENANT_ID, AZURE_CLIENT_ID en AZURE_CLIENT_SECRET in de omgeving.",
-      });
+    const calendarConfig = await getEntityCalendarConfig(filter.entityId);
+    if (!calendarConfig.ok) {
+      res.status(503).json({ error: calendarConfig.error });
       return;
     }
 
     const sellers = await loadSellersForScope(filter.entityId);
     const availability = await checkAvailabilityAt(
+      calendarConfig.config,
       sellers.map((seller) => seller.email),
       body.date,
       body.time,
@@ -189,14 +188,6 @@ sellerConnectionsRouter.post("/availability", async (req, res, next) => {
       return;
     }
 
-    if (!isAzureConfigured()) {
-      res.status(503).json({
-        error:
-          "Azure Graph is nog niet geconfigureerd. Zet AZURE_TENANT_ID, AZURE_CLIENT_ID en AZURE_CLIENT_SECRET in de omgeving.",
-      });
-      return;
-    }
-
     const sellers = await prisma.seller.findMany({
       where: {
         active: true,
@@ -218,12 +209,38 @@ sellerConnectionsRouter.post("/availability", async (req, res, next) => {
       return;
     }
 
-    const results = await checkAvailabilityAt(
-      sellers.map((seller) => seller.email),
-      body.date,
-      body.time,
-      body.durationMinutes,
-    );
+    const byEntity = new Map<string, typeof sellers>();
+    for (const seller of sellers) {
+      const list = byEntity.get(seller.entityId) ?? [];
+      list.push(seller);
+      byEntity.set(seller.entityId, list);
+    }
+
+    const results: Awaited<ReturnType<typeof checkAvailabilityAt>> = [];
+    for (const [entityId, entitySellers] of byEntity) {
+      const calendarConfig = await getEntityCalendarConfig(entityId);
+      if (!calendarConfig.ok) {
+        for (const seller of entitySellers) {
+          results.push({
+            email: seller.email.toLowerCase(),
+            available: false,
+            status: "Agenda niet bereikbaar",
+            detail: calendarConfig.error,
+          });
+        }
+        continue;
+      }
+
+      const chunk = await checkAvailabilityAt(
+        calendarConfig.config,
+        entitySellers.map((seller) => seller.email),
+        body.date,
+        body.time,
+        body.durationMinutes,
+      );
+      results.push(...chunk);
+    }
+
     const byEmail = new Map(
       results.map((item) => [item.email.toLowerCase(), item]),
     );
@@ -260,7 +277,7 @@ sellerConnectionsRouter.post("/availability", async (req, res, next) => {
 
 /**
  * Beschikbare uursloten per verkoper op basis van:
- * locatie (permalink), categorie (slug), datum + werkschema + Azure agenda.
+ * locatie (permalink), categorie (slug), datum + werkschema + agenda.
  */
 sellerConnectionsRouter.post("/slots", async (req, res, next) => {
   try {

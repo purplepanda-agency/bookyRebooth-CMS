@@ -492,8 +492,13 @@ export function FlowBuilderPage() {
           featuredImage,
           active,
           steps: [
-            ...steps.map(({ type, config }) => ({ type, config })),
+            ...steps.map(({ id, type, config }) => ({
+              ...(id ? { id } : {}),
+              type,
+              config,
+            })),
             {
+              ...(confirmationStep.id ? { id: confirmationStep.id } : {}),
               type: "CONFIRMATION" as const,
               config: {
                 title:

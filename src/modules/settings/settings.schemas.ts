@@ -70,3 +70,58 @@ export const updateTrackingSettingsSchema = z.object({
   footerScripts: z.string().max(100_000).nullable(),
   entityId: z.string().cuid().optional(),
 });
+
+const optionalTrimmed = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((value) => {
+    if (value == null) return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  });
+
+export const updateCalendarSettingsSchema = z
+  .object({
+    provider: z.enum(["NONE", "OUTLOOK", "GOOGLE"]),
+    timeZone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .default("Europe/Brussels"),
+    outlookTenantId: optionalTrimmed,
+    outlookClientId: optionalTrimmed,
+    outlookClientSecret: optionalTrimmed,
+    clearOutlookClientSecret: z.boolean().optional(),
+    googleClientEmail: optionalTrimmed,
+    googlePrivateKey: optionalTrimmed,
+    clearGooglePrivateKey: z.boolean().optional(),
+    googleSubject: optionalTrimmed,
+    entityId: z.string().cuid().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.provider === "OUTLOOK") {
+      if (!value.outlookTenantId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Outlook tenant ID is verplicht",
+          path: ["outlookTenantId"],
+        });
+      }
+      if (!value.outlookClientId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Outlook client ID is verplicht",
+          path: ["outlookClientId"],
+        });
+      }
+    }
+    if (value.provider === "GOOGLE") {
+      if (!value.googleClientEmail) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Google client e-mail is verplicht",
+          path: ["googleClientEmail"],
+        });
+      }
+    }
+  });

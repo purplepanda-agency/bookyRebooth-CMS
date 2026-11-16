@@ -360,6 +360,21 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
             type: true,
             sortOrder: true,
             config: true,
+            contentBlocks: {
+              where: { contentBlock: { active: true } },
+              select: {
+                contentBlock: {
+                  select: {
+                    id: true,
+                    title: true,
+                    text: true,
+                    buttonLabel: true,
+                    buttonUrl: true,
+                    sortOrder: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -373,6 +388,30 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
       });
       res.status(404).json({ error: "Flow niet gevonden" });
       return;
+    }
+
+    function mapContentBlocks(
+      links: Array<{
+        contentBlock: {
+          id: string;
+          title: string;
+          text: string;
+          buttonLabel: string | null;
+          buttonUrl: string | null;
+          sortOrder: number;
+        };
+      }>,
+    ) {
+      return [...links]
+        .map((link) => link.contentBlock)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title, "nl"))
+        .map((block) => ({
+          id: block.id,
+          title: block.title,
+          text: block.text,
+          buttonLabel: block.buttonLabel,
+          buttonUrl: block.buttonUrl,
+        }));
     }
 
     const steps = [];
@@ -398,6 +437,7 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
             ? resolveImageFit(step.config)
             : "contain",
         options,
+        contentBlocks: mapContentBlocks(step.contentBlocks),
       });
     }
 
@@ -411,6 +451,9 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
         "Persoonlijke gegevens",
       imageFit: "contain" as const,
       options: [],
+      contentBlocks: confirmation
+        ? mapContentBlocks(confirmation.contentBlocks)
+        : [],
     });
 
     res.json({

@@ -164,6 +164,29 @@ export type FlowStep =
       config: { title: string };
     };
 
+export type ContentBlockStepRef = {
+  id: string;
+  type: FlowStepType | string;
+  sortOrder: number;
+  title: string | null;
+  flow: { id: string; name: string; slug: string };
+};
+
+export type ContentBlock = {
+  id: string;
+  title: string;
+  text: string;
+  buttonLabel: string | null;
+  buttonUrl: string | null;
+  active: boolean;
+  sortOrder: number;
+  entityId: string;
+  entity?: EntitySummary | null;
+  steps: ContentBlockStepRef[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type Flow = {
   id: string;
   name: string;

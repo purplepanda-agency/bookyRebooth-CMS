@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api, uploadMedia } from "../api/client";
 import type { Category } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
@@ -26,7 +26,9 @@ function slugify(value: string) {
 }
 
 export function CategoriesPage() {
-  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
+  const { selectedEntityId, selectedEntity, settleEntityTransition } =
+    useAccessibleEntities();
+  const hasLoadedRef = useRef(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,36 +38,35 @@ export function CategoriesPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [slugTouched, setSlugTouched] = useState(false);
-  const [filterEntityId, setFilterEntityId] = useState("");
-
-  const mediaEntityKey = useMemo(() => {
-    const selected =
-      entities.find((entity) => entity.id === form.entityId)?.slug ||
-      entities.find((entity) => entity.id === filterEntityId)?.slug;
-    return selected || fixedEntity?.slug || "global";
-  }, [entities, form.entityId, filterEntityId, fixedEntity]);
+  const mediaEntityKey = selectedEntity?.slug || "global";
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      setLoading(true);
+      if (!hasLoadedRef.current) setLoading(true);
       setError(null);
       try {
         const query =
-          canChooseEntity && filterEntityId
-            ? `?entityId=${encodeURIComponent(filterEntityId)}`
+          selectedEntityId
+            ? `?entityId=${encodeURIComponent(selectedEntityId)}`
             : "";
         const data = await api<{ categories: Category[] }>(
           `/categories${query}`,
         );
-        if (!cancelled) setCategories(data.categories);
+        if (!cancelled) {
+          setCategories(data.categories);
+          hasLoadedRef.current = true;
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Laden mislukt");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -73,12 +74,12 @@ export function CategoriesPage() {
     return () => {
       cancelled = true;
     };
-  }, [canChooseEntity, filterEntityId]);
+  }, [selectedEntityId, settleEntityTransition]);
 
   async function reload() {
     const query =
-      canChooseEntity && filterEntityId
-        ? `?entityId=${encodeURIComponent(filterEntityId)}`
+      selectedEntityId
+        ? `?entityId=${encodeURIComponent(selectedEntityId)}`
         : "";
     const data = await api<{ categories: Category[] }>(`/categories${query}`);
     setCategories(data.categories);
@@ -89,9 +90,7 @@ export function CategoriesPage() {
     setSlugTouched(false);
     setForm({
       ...emptyForm,
-      entityId: canChooseEntity
-        ? filterEntityId || entities[0]?.id || ""
-        : fixedEntity?.id || "",
+      entityId: selectedEntityId,
     });
     setShowForm(true);
   }
@@ -138,7 +137,7 @@ export function CategoriesPage() {
           }),
         });
       } else {
-        if (canChooseEntity && !form.entityId) {
+        if (!selectedEntityId) {
           setError("Kies een entiteit");
           setSaving(false);
           return;
@@ -150,7 +149,7 @@ export function CategoriesPage() {
             name: form.name,
             imageUrl: form.imageUrl || null,
             slug: form.slug,
-            ...(canChooseEntity ? { entityId: form.entityId } : {}),
+            entityId: selectedEntityId,
           }),
         });
       }
@@ -189,23 +188,6 @@ export function CategoriesPage() {
         </button>
       </div>
 
-      {canChooseEntity ? (
-        <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
-          Filter op entiteit
-          <select
-            value={filterEntityId}
-            onChange={(e) => setFilterEntityId(e.target.value)}
-          >
-            <option value="">Alle entiteiten</option>
-            {entities.map((entity) => (
-              <option key={entity.id} value={entity.id}>
-                {entity.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-
       {error ? (
         <p className="error" style={{ marginBottom: "1rem" }}>
           {error}
@@ -222,7 +204,6 @@ export function CategoriesPage() {
             <thead>
               <tr>
                 <th>Naam</th>
-                {canChooseEntity ? <th>Entiteit</th> : null}
                 <th>Slug</th>
                 <th></th>
               </tr>
@@ -266,7 +247,6 @@ export function CategoriesPage() {
                       <span>{category.name}</span>
                     </div>
                   </td>
-                  {canChooseEntity ? <td>{category.entity?.name ?? "—"}</td> : null}
                   <td>
                     <span className="badge">{category.slug}</span>
                   </td>
@@ -320,26 +300,6 @@ export function CategoriesPage() {
         {showForm ? (
           <form id="category-form" className="drawer stack" onSubmit={onSubmit}>
             <h2>{editingId ? "Categorie bewerken" : "Nieuwe categorie"}</h2>
-
-            {canChooseEntity && !editingId ? (
-              <label>
-                Entiteit
-                <select
-                  value={form.entityId}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, entityId: e.target.value }))
-                  }
-                  required
-                >
-                  <option value="">Kies entiteit…</option>
-                  {entities.map((entity) => (
-                    <option key={entity.id} value={entity.id}>
-                      {entity.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
 
             <div className="form-grid two">
               <label>

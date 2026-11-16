@@ -14,6 +14,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default("7d"),
+  ENCRYPTION_KEY: z.string().min(32),
   SEED_ADMIN_EMAIL: z.string().email().optional(),
   SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   SEED_DEMO: z

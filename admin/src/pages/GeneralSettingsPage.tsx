@@ -1,9 +1,29 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api, uploadMedia } from "../api/client";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { BasicWysiwyg } from "../components/BasicWysiwyg";
 
-type SettingsTab = "content" | "domain" | "tracking" | "sellers";
+type SettingsTab =
+  | "content"
+  | "domain"
+  | "tracking"
+  | "integrations"
+  | "sellers";
+
+type CalendarProvider = "NONE" | "OUTLOOK" | "GOOGLE";
+
+type CalendarSettings = {
+  provider: CalendarProvider;
+  timeZone: string;
+  outlookTenantId: string | null;
+  outlookClientId: string | null;
+  outlookClientSecretSet: boolean;
+  googleClientEmail: string | null;
+  googlePrivateKeySet: boolean;
+  googleSubject: string | null;
+  configured: boolean;
+  message: string | null;
+};
 
 type SellerConnection = {
   sellerId: string;
@@ -30,6 +50,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "content", label: "Algemene content" },
   { id: "domain", label: "Domeininstellingen" },
   { id: "tracking", label: "Tracking" },
+  { id: "integrations", label: "Integraties" },
   { id: "sellers", label: "Verkopersconnecties" },
 ];
 
@@ -47,9 +68,12 @@ function nextHalfHour() {
 }
 
 export function GeneralSettingsPage() {
-  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
+  const {
+    selectedEntityId: entityId,
+    selectedEntity,
+    settleEntityTransition,
+  } = useAccessibleEntities();
   const [activeTab, setActiveTab] = useState<SettingsTab>("content");
-  const [entityId, setEntityId] = useState(fixedEntity?.id || "");
   const [connections, setConnections] = useState<SellerConnection[]>([]);
   const [configured, setConfigured] = useState(true);
   const [configMessage, setConfigMessage] = useState<string | null>(null);
@@ -73,7 +97,6 @@ export function GeneralSettingsPage() {
   const [primaryColor, setPrimaryColor] = useState("#121417");
   const [secondaryColor, setSecondaryColor] = useState("#667085");
   const [accentColor, setAccentColor] = useState("#2766ab");
-  const [contentEntityName, setContentEntityName] = useState("");
   const [loadingContent, setLoadingContent] = useState(false);
   const [savingContent, setSavingContent] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -83,30 +106,48 @@ export function GeneralSettingsPage() {
   const [trackingEntityName, setTrackingEntityName] = useState("");
   const [loadingTracking, setLoadingTracking] = useState(false);
   const [savingTracking, setSavingTracking] = useState(false);
+  const [calendarProvider, setCalendarProvider] =
+    useState<CalendarProvider>("NONE");
+  const [calendarTimeZone, setCalendarTimeZone] = useState("Europe/Brussels");
+  const [outlookTenantId, setOutlookTenantId] = useState("");
+  const [outlookClientId, setOutlookClientId] = useState("");
+  const [outlookClientSecret, setOutlookClientSecret] = useState("");
+  const [outlookClientSecretSet, setOutlookClientSecretSet] = useState(false);
+  const [clearOutlookClientSecret, setClearOutlookClientSecret] =
+    useState(false);
+  const [googleClientEmail, setGoogleClientEmail] = useState("");
+  const [googlePrivateKey, setGooglePrivateKey] = useState("");
+  const [googlePrivateKeySet, setGooglePrivateKeySet] = useState(false);
+  const [clearGooglePrivateKey, setClearGooglePrivateKey] = useState(false);
+  const [googleSubject, setGoogleSubject] = useState("");
+  const [calendarConfigured, setCalendarConfigured] = useState(false);
+  const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
+  const [integrationsEntityName, setIntegrationsEntityName] = useState("");
+  const [loadingIntegrations, setLoadingIntegrations] = useState(false);
+  const [savingIntegrations, setSavingIntegrations] = useState(false);
 
-  const mediaEntityKey = useMemo(() => {
-    return (
-      entities.find((entity) => entity.id === entityId)?.slug ||
-      fixedEntity?.slug ||
-      "global"
-    );
-  }, [entities, entityId, fixedEntity]);
+  const mediaEntityKey = selectedEntity?.slug || "global";
 
-  useEffect(() => {
-    if (!canChooseEntity) {
-      if (fixedEntity && entityId !== fixedEntity.id) {
-        setEntityId(fixedEntity.id);
-      }
-      return;
-    }
-    if (!entityId && entities[0]) {
-      setEntityId(entities[0].id);
-    }
-  }, [canChooseEntity, entities, entityId, fixedEntity]);
+  function applyCalendarSettings(calendar: CalendarSettings) {
+    setCalendarProvider(calendar.provider);
+    setCalendarTimeZone(calendar.timeZone || "Europe/Brussels");
+    setOutlookTenantId(calendar.outlookTenantId || "");
+    setOutlookClientId(calendar.outlookClientId || "");
+    setOutlookClientSecret("");
+    setOutlookClientSecretSet(calendar.outlookClientSecretSet);
+    setClearOutlookClientSecret(false);
+    setGoogleClientEmail(calendar.googleClientEmail || "");
+    setGooglePrivateKey("");
+    setGooglePrivateKeySet(calendar.googlePrivateKeySet);
+    setClearGooglePrivateKey(false);
+    setGoogleSubject(calendar.googleSubject || "");
+    setCalendarConfigured(calendar.configured);
+    setCalendarMessage(calendar.message);
+  }
 
   useEffect(() => {
     if (activeTab !== "sellers") return;
-    if (canChooseEntity && !entityId) return;
+    if (!entityId) return;
 
     let cancelled = false;
 
@@ -116,7 +157,7 @@ export function GeneralSettingsPage() {
       setAvailabilityResults(null);
       try {
         const query =
-          canChooseEntity && entityId
+          entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -135,7 +176,10 @@ export function GeneralSettingsPage() {
           );
         }
       } finally {
-        if (!cancelled) setLoadingConnections(false);
+        if (!cancelled) {
+          setLoadingConnections(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -143,11 +187,11 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, canChooseEntity, entityId]);
+  }, [activeTab, entityId]);
 
   useEffect(() => {
     if (activeTab !== "content") return;
-    if (canChooseEntity && !entityId) return;
+    if (!entityId) return;
 
     let cancelled = false;
 
@@ -156,7 +200,7 @@ export function GeneralSettingsPage() {
       setError(null);
       try {
         const query =
-          canChooseEntity && entityId
+          entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -177,7 +221,6 @@ export function GeneralSettingsPage() {
         setPrimaryColor(data.entity.primaryColor || "#121417");
         setSecondaryColor(data.entity.secondaryColor || "#667085");
         setAccentColor(data.entity.accentColor || "#2766ab");
-        setContentEntityName(data.entity.name);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -185,7 +228,10 @@ export function GeneralSettingsPage() {
           );
         }
       } finally {
-        if (!cancelled) setLoadingContent(false);
+        if (!cancelled) {
+          setLoadingContent(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -193,11 +239,11 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, canChooseEntity, entityId]);
+  }, [activeTab, entityId]);
 
   useEffect(() => {
     if (activeTab !== "tracking") return;
-    if (canChooseEntity && !entityId) return;
+    if (!entityId) return;
 
     let cancelled = false;
 
@@ -206,7 +252,7 @@ export function GeneralSettingsPage() {
       setError(null);
       try {
         const query =
-          canChooseEntity && entityId
+          entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -229,7 +275,10 @@ export function GeneralSettingsPage() {
           );
         }
       } finally {
-        if (!cancelled) setLoadingTracking(false);
+        if (!cancelled) {
+          setLoadingTracking(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -237,11 +286,11 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, canChooseEntity, entityId]);
+  }, [activeTab, entityId]);
 
   useEffect(() => {
     if (activeTab !== "domain") return;
-    if (canChooseEntity && !entityId) return;
+    if (!entityId) return;
 
     let cancelled = false;
 
@@ -250,7 +299,7 @@ export function GeneralSettingsPage() {
       setError(null);
       try {
         const query =
-          canChooseEntity && entityId
+          entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -266,7 +315,10 @@ export function GeneralSettingsPage() {
           );
         }
       } finally {
-        if (!cancelled) setLoadingDomain(false);
+        if (!cancelled) {
+          setLoadingDomain(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -274,7 +326,47 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, canChooseEntity, entityId]);
+  }, [activeTab, entityId]);
+
+  useEffect(() => {
+    if (activeTab !== "integrations") return;
+    if (!entityId) return;
+
+    let cancelled = false;
+
+    async function loadIntegrations() {
+      setLoadingIntegrations(true);
+      setError(null);
+      try {
+        const query = `?entityId=${encodeURIComponent(entityId)}`;
+        const data = await api<{
+          entity: {
+            name: string;
+            calendar: CalendarSettings;
+          };
+        }>(`/settings/calendar${query}`);
+        if (cancelled) return;
+        setIntegrationsEntityName(data.entity.name);
+        applyCalendarSettings(data.entity.calendar);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Integraties laden mislukt",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingIntegrations(false);
+          settleEntityTransition();
+        }
+      }
+    }
+
+    void loadIntegrations();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, entityId, settleEntityTransition]);
 
   async function onLogoChange(file: File | null) {
     if (!file) return;
@@ -292,7 +384,7 @@ export function GeneralSettingsPage() {
 
   async function saveContent(event: FormEvent) {
     event.preventDefault();
-    if (canChooseEntity && !entityId) {
+    if (!entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -319,7 +411,7 @@ export function GeneralSettingsPage() {
           primaryColor: primaryColor || null,
           secondaryColor: secondaryColor || null,
           accentColor: accentColor || null,
-          ...(canChooseEntity ? { entityId } : {}),
+          ...(entityId ? { entityId } : {}),
         }),
       });
       setLogoUrl(data.entity.logoUrl || "");
@@ -328,7 +420,6 @@ export function GeneralSettingsPage() {
       setPrimaryColor(data.entity.primaryColor || "#121417");
       setSecondaryColor(data.entity.secondaryColor || "#667085");
       setAccentColor(data.entity.accentColor || "#2766ab");
-      setContentEntityName(data.entity.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Content opslaan mislukt");
     } finally {
@@ -338,7 +429,7 @@ export function GeneralSettingsPage() {
 
   async function saveDomain(event: FormEvent) {
     event.preventDefault();
-    if (canChooseEntity && !entityId) {
+    if (!entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -352,7 +443,7 @@ export function GeneralSettingsPage() {
         method: "PATCH",
         body: JSON.stringify({
           domain: domainValue,
-          ...(canChooseEntity ? { entityId } : {}),
+          ...(entityId ? { entityId } : {}),
         }),
       });
       setDomainValue(data.entity.domain || "");
@@ -366,7 +457,7 @@ export function GeneralSettingsPage() {
 
   async function saveTracking(event: FormEvent) {
     event.preventDefault();
-    if (canChooseEntity && !entityId) {
+    if (!entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -387,7 +478,7 @@ export function GeneralSettingsPage() {
           gtmId: gtmId.trim() || null,
           headerScripts: headerScripts.trim() || null,
           footerScripts: footerScripts.trim() || null,
-          ...(canChooseEntity ? { entityId } : {}),
+          ...(entityId ? { entityId } : {}),
         }),
       });
       setGtmId(data.entity.gtmId || "");
@@ -403,8 +494,50 @@ export function GeneralSettingsPage() {
     }
   }
 
+  async function saveIntegrations(event: FormEvent) {
+    event.preventDefault();
+    if (!entityId) {
+      setError("Kies een entiteit");
+      return;
+    }
+
+    setSavingIntegrations(true);
+    setError(null);
+    try {
+      const data = await api<{
+        entity: {
+          name: string;
+          calendar: CalendarSettings;
+        };
+      }>("/settings/calendar", {
+        method: "PATCH",
+        body: JSON.stringify({
+          provider: calendarProvider,
+          timeZone: calendarTimeZone.trim() || "Europe/Brussels",
+          outlookTenantId: outlookTenantId.trim() || null,
+          outlookClientId: outlookClientId.trim() || null,
+          outlookClientSecret: outlookClientSecret.trim() || null,
+          clearOutlookClientSecret,
+          googleClientEmail: googleClientEmail.trim() || null,
+          googlePrivateKey: googlePrivateKey.trim() || null,
+          clearGooglePrivateKey,
+          googleSubject: googleSubject.trim() || null,
+          entityId,
+        }),
+      });
+      setIntegrationsEntityName(data.entity.name);
+      applyCalendarSettings(data.entity.calendar);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Integraties opslaan mislukt",
+      );
+    } finally {
+      setSavingIntegrations(false);
+    }
+  }
+
   async function runAvailabilityTest() {
-    if (canChooseEntity && !entityId) {
+    if (!entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -423,7 +556,7 @@ export function GeneralSettingsPage() {
           date: testDate,
           time: testTime,
           durationMinutes: 30,
-          ...(canChooseEntity ? { entityId } : {}),
+          ...(entityId ? { entityId } : {}),
         }),
       });
       setAvailabilityResults(data.results);
@@ -462,25 +595,193 @@ export function GeneralSettingsPage() {
         ))}
       </div>
 
+      {activeTab === "integrations" ? (
+        <div className="stack">
+          {error ? <p className="error">{error}</p> : null}
+          {loadingIntegrations ? (
+            <div className="empty">Integraties laden…</div>
+          ) : (
+            <form className="panel" onSubmit={saveIntegrations}>
+              <div className="panel-body stack">
+                <div>
+                  <h2 style={{ marginBottom: "0.35rem" }}>Agenda-integratie</h2>
+                  <p className="muted">
+                    Credentials voor{" "}
+                    {integrationsEntityName || selectedEntity?.name || "deze entiteit"}.
+                    Secrets worden versleuteld opgeslagen en nooit teruggetoond.
+                  </p>
+                </div>
+
+                {calendarMessage ? (
+                  <p className={calendarConfigured ? "muted" : "error"}>
+                    {calendarMessage}
+                  </p>
+                ) : calendarConfigured ? (
+                  <p className="muted">Agenda-provider is volledig geconfigureerd.</p>
+                ) : null}
+
+                <label>
+                  Provider
+                  <select
+                    value={calendarProvider}
+                    onChange={(event) =>
+                      setCalendarProvider(event.target.value as CalendarProvider)
+                    }
+                  >
+                    <option value="NONE">Geen</option>
+                    <option value="OUTLOOK">Outlook (Microsoft 365)</option>
+                    <option value="GOOGLE">Google Calendar</option>
+                  </select>
+                </label>
+
+                <label>
+                  Tijdzone
+                  <input
+                    value={calendarTimeZone}
+                    onChange={(event) => setCalendarTimeZone(event.target.value)}
+                    placeholder="Europe/Brussels"
+                  />
+                </label>
+
+                {calendarProvider === "OUTLOOK" ? (
+                  <>
+                    <label>
+                      Tenant ID
+                      <input
+                        value={outlookTenantId}
+                        onChange={(event) =>
+                          setOutlookTenantId(event.target.value)
+                        }
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label>
+                      Client ID
+                      <input
+                        value={outlookClientId}
+                        onChange={(event) =>
+                          setOutlookClientId(event.target.value)
+                        }
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label>
+                      Client secret
+                      <input
+                        type="password"
+                        value={outlookClientSecret}
+                        onChange={(event) => {
+                          setOutlookClientSecret(event.target.value);
+                          if (event.target.value) {
+                            setClearOutlookClientSecret(false);
+                          }
+                        }}
+                        placeholder={
+                          outlookClientSecretSet
+                            ? "•••••••• (laat leeg om te behouden)"
+                            : "Plak client secret"
+                        }
+                        autoComplete="new-password"
+                      />
+                    </label>
+                    {outlookClientSecretSet ? (
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={clearOutlookClientSecret}
+                          onChange={(event) => {
+                            setClearOutlookClientSecret(event.target.checked);
+                            if (event.target.checked) {
+                              setOutlookClientSecret("");
+                            }
+                          }}
+                        />
+                        Bestaande client secret wissen
+                      </label>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {calendarProvider === "GOOGLE" ? (
+                  <>
+                    <p className="muted">
+                      Opslaan kan al. De Google Calendar-koppeling zelf volgt in
+                      een volgende stap.
+                    </p>
+                    <label>
+                      Service account e-mail
+                      <input
+                        value={googleClientEmail}
+                        onChange={(event) =>
+                          setGoogleClientEmail(event.target.value)
+                        }
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label>
+                      Private key
+                      <textarea
+                        value={googlePrivateKey}
+                        onChange={(event) => {
+                          setGooglePrivateKey(event.target.value);
+                          if (event.target.value) {
+                            setClearGooglePrivateKey(false);
+                          }
+                        }}
+                        placeholder={
+                          googlePrivateKeySet
+                            ? "Laat leeg om de bestaande key te behouden"
+                            : "Plak de private key (PEM)"
+                        }
+                        rows={6}
+                      />
+                    </label>
+                    {googlePrivateKeySet ? (
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={clearGooglePrivateKey}
+                          onChange={(event) => {
+                            setClearGooglePrivateKey(event.target.checked);
+                            if (event.target.checked) {
+                              setGooglePrivateKey("");
+                            }
+                          }}
+                        />
+                        Bestaande private key wissen
+                      </label>
+                    ) : null}
+                    <label>
+                      Subject (optioneel, domain-wide delegation)
+                      <input
+                        value={googleSubject}
+                        onChange={(event) =>
+                          setGoogleSubject(event.target.value)
+                        }
+                        placeholder="user@domein.be"
+                        autoComplete="off"
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+                <div className="actions">
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={savingIntegrations || !entityId}
+                  >
+                    {savingIntegrations ? "Opslaan…" : "Opslaan"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
+      ) : null}
+
       {activeTab === "sellers" ? (
         <div className="stack">
-          {canChooseEntity ? (
-            <label style={{ maxWidth: 320 }}>
-              Entiteit
-              <select
-                value={entityId}
-                onChange={(e) => setEntityId(e.target.value)}
-              >
-                <option value="">Kies entiteit…</option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           {error ? <p className="error">{error}</p> : null}
 
           {!configured && configMessage ? (
@@ -495,7 +796,8 @@ export function GeneralSettingsPage() {
             <div className="panel-body">
               <h2 style={{ marginBottom: "0.75rem" }}>Verkopersagenda’s</h2>
               <p className="muted" style={{ marginBottom: "1rem" }}>
-                Status op basis van het e-mailadres van de verkoper in Azure.
+                Status op basis van het e-mailadres van de verkoper en de
+                agenda-integratie van deze entiteit.
               </p>
 
               {loadingConnections ? (
@@ -645,23 +947,6 @@ export function GeneralSettingsPage() {
         </div>
       ) : activeTab === "domain" ? (
         <div className="stack">
-          {canChooseEntity ? (
-            <label style={{ maxWidth: 320 }}>
-              Entiteit
-              <select
-                value={entityId}
-                onChange={(e) => setEntityId(e.target.value)}
-              >
-                <option value="">Kies entiteit…</option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           {error ? <p className="error">{error}</p> : null}
 
           <div className="panel">
@@ -691,7 +976,7 @@ export function GeneralSettingsPage() {
                   <button
                     type="submit"
                     className="btn"
-                    disabled={savingDomain || (canChooseEntity && !entityId)}
+                    disabled={savingDomain || (!entityId)}
                   >
                     {savingDomain ? "Opslaan…" : "Opslaan"}
                   </button>
@@ -702,23 +987,6 @@ export function GeneralSettingsPage() {
         </div>
       ) : activeTab === "tracking" ? (
         <div className="stack">
-          {canChooseEntity ? (
-            <label style={{ maxWidth: 320 }}>
-              Entiteit
-              <select
-                value={entityId}
-                onChange={(e) => setEntityId(e.target.value)}
-              >
-                <option value="">Kies entiteit…</option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           {error ? <p className="error">{error}</p> : null}
 
           <div className="panel">
@@ -773,7 +1041,7 @@ export function GeneralSettingsPage() {
                   <button
                     type="submit"
                     className="btn"
-                    disabled={savingTracking || (canChooseEntity && !entityId)}
+                    disabled={savingTracking || (!entityId)}
                   >
                     {savingTracking ? "Opslaan…" : "Opslaan"}
                   </button>
@@ -782,28 +1050,9 @@ export function GeneralSettingsPage() {
             )}
           </div>
         </div>
-      ) : (
+      ) : activeTab === "content" ? (
         <div className="stack">
-          {canChooseEntity ? (
-            <label style={{ maxWidth: 320 }}>
-              Entiteit
-              <select
-                value={entityId}
-                onChange={(e) => setEntityId(e.target.value)}
-              >
-                <option value="">Kies entiteit…</option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
-          {error && activeTab === "content" ? (
-            <p className="error">{error}</p>
-          ) : null}
+          {error ? <p className="error">{error}</p> : null}
 
           {loadingContent ? (
             <div className="panel">
@@ -811,11 +1060,6 @@ export function GeneralSettingsPage() {
             </div>
           ) : (
             <form className="stack" onSubmit={saveContent}>
-              <p className="muted" style={{ margin: 0 }}>
-                Content voor de booking tool van{" "}
-                {contentEntityName || "deze entiteit"}.
-              </p>
-
               <div className="settings-blocks">
                 <details className="settings-block" open>
                   <summary>
@@ -966,7 +1210,7 @@ export function GeneralSettingsPage() {
                   type="submit"
                   className="btn"
                   disabled={
-                    savingContent || uploadingLogo || (canChooseEntity && !entityId)
+                    savingContent || uploadingLogo || (!entityId)
                   }
                 >
                   {savingContent ? "Opslaan…" : "Opslaan"}
@@ -975,7 +1219,7 @@ export function GeneralSettingsPage() {
             </form>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

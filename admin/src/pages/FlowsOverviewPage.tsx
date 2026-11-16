@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { Flow } from "../api/types";
@@ -34,9 +34,9 @@ function IconChevronDown() {
 
 export function FlowsOverviewPage() {
   const navigate = useNavigate();
-  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
+  const { selectedEntityId, settleEntityTransition } = useAccessibleEntities();
+  const hasLoadedRef = useRef(false);
   const [flows, setFlows] = useState<Flow[]>([]);
-  const [filterEntityId, setFilterEntityId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -46,21 +46,26 @@ export function FlowsOverviewPage() {
     let cancelled = false;
 
     async function load() {
-      setLoading(true);
+      if (!hasLoadedRef.current) setLoading(true);
       setError(null);
       try {
-        const query =
-          canChooseEntity && filterEntityId
-            ? `?entityId=${encodeURIComponent(filterEntityId)}`
-            : "";
+        const query = selectedEntityId
+          ? `?entityId=${encodeURIComponent(selectedEntityId)}`
+          : "";
         const data = await api<{ flows: Flow[] }>(`/flows${query}`);
-        if (!cancelled) setFlows(data.flows);
+        if (!cancelled) {
+          setFlows(data.flows);
+          hasLoadedRef.current = true;
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Laden mislukt");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          settleEntityTransition();
+        }
       }
     }
 
@@ -68,15 +73,13 @@ export function FlowsOverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [canChooseEntity, filterEntityId]);
+  }, [selectedEntityId, settleEntityTransition]);
 
   async function createFlow() {
     setCreating(true);
     setError(null);
     try {
-      const entityId = canChooseEntity
-        ? filterEntityId || entities[0]?.id
-        : fixedEntity?.id;
+      const entityId = selectedEntityId;
 
       if (!entityId) {
         setError("Kies eerst een entiteit");
@@ -196,23 +199,6 @@ export function FlowsOverviewPage() {
         </button>
       </div>
 
-      {canChooseEntity ? (
-        <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
-          Filter op entiteit
-          <select
-            value={filterEntityId}
-            onChange={(e) => setFilterEntityId(e.target.value)}
-          >
-            <option value="">Alle entiteiten</option>
-            {entities.map((entity) => (
-              <option key={entity.id} value={entity.id}>
-                {entity.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-
       {error ? (
         <p className="error" style={{ marginBottom: "1rem" }}>
           {error}
@@ -232,7 +218,6 @@ export function FlowsOverviewPage() {
                 <th>Naam</th>
                 <th>Slug</th>
                 <th>Status</th>
-                {canChooseEntity ? <th>Entiteit</th> : null}
                 <th>Stappen</th>
                 <th></th>
               </tr>
@@ -328,7 +313,6 @@ export function FlowsOverviewPage() {
                         </span>
                       </label>
                     </td>
-                    {canChooseEntity ? <td>{flow.entity?.name ?? "—"}</td> : null}
                     <td>
                       <span className="badge">{flow._count?.steps ?? 0}</span>
                     </td>

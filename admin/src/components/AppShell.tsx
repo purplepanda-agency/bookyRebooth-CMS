@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useAccessibleEntities } from "../auth/entityAccess";
 import { useAuth } from "../auth/AuthContext";
 import { CMS_VERSION } from "../version";
 
@@ -7,22 +8,29 @@ const roleLabel: Record<string, string> = {
   ADMIN: "Admin",
 };
 
-function entityScopeLabel(user: { role: string; entities: { name: string }[] }) {
-  if (user.role === "SUPER_ADMIN") return "Alle entiteiten";
-  if (user.entities.length === 0) return "Geen entiteit";
-  if (user.entities.length <= 2) {
-    return user.entities.map((entity) => entity.name).join(", ");
-  }
-  return `${user.entities.length} entiteiten`;
-}
-
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : undefined;
 }
 
 export function AppShell() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const {
+    entities,
+    selectedEntity,
+    entityChoiceId,
+    entityPhase,
+    setSelectedEntityId,
+  } = useAccessibleEntities();
   const isSuper = user?.role === "SUPER_ADMIN";
+
+  function onEntityChange(entityId: string) {
+    if (/^\/new-flow\/.+/.test(location.pathname)) {
+      navigate("/new-flow");
+    }
+    setSelectedEntityId(entityId);
+  }
 
   return (
     <div className="shell">
@@ -33,6 +41,27 @@ export function AppShell() {
         </div>
 
         <nav className="nav">
+          {entities.length > 1 ? (
+            <label className="entity-switch">
+              Entiteit
+              <select
+                value={entityChoiceId}
+                onChange={(event) => onEntityChange(event.target.value)}
+              >
+                {entities.map((entity) => (
+                  <option key={entity.id} value={entity.id}>
+                    {entity.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : selectedEntity ? (
+            <div className="entity-switch">
+              Entiteit
+              <strong>{selectedEntity.name}</strong>
+            </div>
+          ) : null}
+
           <NavLink to="/" end className={navClass}>
             Overzicht
           </NavLink>
@@ -73,6 +102,9 @@ export function AppShell() {
           <NavLink to="/new-flow" className={navClass}>
             Nieuwe flow
           </NavLink>
+          <NavLink to="/content-blocks" className={navClass}>
+            Contentblokken
+          </NavLink>
 
           {isSuper ? (
             <>
@@ -88,7 +120,6 @@ export function AppShell() {
           <div>
             <div>{user?.email}</div>
             <div>{user ? roleLabel[user.role] : ""}</div>
-            {user ? <div>{entityScopeLabel(user)}</div> : null}
           </div>
           <NavLink to="/account" className={navClass}>
             Wachtwoord wijzigen
@@ -101,7 +132,9 @@ export function AppShell() {
       </aside>
 
       <main className="main">
-        <Outlet />
+        <div className={entityPhase === "steady" ? "entity-stage" : `entity-stage ${entityPhase}`}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );
