@@ -9,6 +9,7 @@ import {
 } from "../../lib/entityScope.js";
 import {
   createContentBlockSchema,
+  patchContentBlockActiveSchema,
   updateContentBlockSchema,
 } from "./contentBlocks.schemas.js";
 
@@ -39,12 +40,13 @@ const contentBlockInclude = {
   entity: { select: { id: true, name: true, slug: true } },
 } as const;
 
+type ContentBlockButton = { label: string; url: string };
+
 type ContentBlockRow = {
   id: string;
   title: string;
   text: string;
-  buttonLabel: string | null;
-  buttonUrl: string | null;
+  buttons: unknown;
   active: boolean;
   sortOrder: number;
   entityId: string;
@@ -74,13 +76,29 @@ function stepConfigTitle(config: unknown) {
   return null;
 }
 
+function normalizeButtons(value: unknown): ContentBlockButton[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (
+      typeof item === "object" &&
+      item &&
+      typeof (item as { label?: unknown }).label === "string" &&
+      typeof (item as { url?: unknown }).url === "string"
+    ) {
+      const label = (item as { label: string }).label.trim();
+      const url = (item as { url: string }).url.trim();
+      return label && url ? [{ label, url }] : [];
+    }
+    return [];
+  });
+}
+
 function mapContentBlock(block: ContentBlockRow) {
   return {
     id: block.id,
     title: block.title,
     text: block.text,
-    buttonLabel: block.buttonLabel,
-    buttonUrl: block.buttonUrl,
+    buttons: normalizeButtons(block.buttons),
     active: block.active,
     sortOrder: block.sortOrder,
     entityId: block.entityId,
@@ -244,8 +262,7 @@ contentBlocksRouter.post("/", async (req, res, next) => {
       data: {
         title: body.title,
         text: body.text,
-        buttonLabel: body.buttonLabel,
-        buttonUrl: body.buttonUrl,
+        buttons: body.buttons,
         active: body.active,
         sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
         entityId: scope.entityId,
@@ -302,8 +319,7 @@ contentBlocksRouter.put("/:id", async (req, res, next) => {
         data: {
           title: body.title,
           text: body.text,
-          buttonLabel: body.buttonLabel,
-          buttonUrl: body.buttonUrl,
+          buttons: body.buttons,
           active: body.active,
           steps: {
             create: [...new Set(body.stepIds)].map((flowStepId) => ({
@@ -313,6 +329,38 @@ contentBlocksRouter.put("/:id", async (req, res, next) => {
         },
         include: contentBlockInclude,
       });
+    });
+
+    res.json({ contentBlock: mapContentBlock(block) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+contentBlocksRouter.patch("/:id", async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const body = patchContentBlockActiveSchema.parse(req.body);
+
+    const existing = await prisma.contentBlock.findUnique({
+      where: { id },
+      select: { id: true, entityId: true },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: "Contentblok niet gevonden" });
+      return;
+    }
+
+    if (!canAccessEntity(req.user!, existing.entityId)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const block = await prisma.contentBlock.update({
+      where: { id },
+      data: { active: body.active },
+      include: contentBlockInclude,
     });
 
     res.json({ contentBlock: mapContentBlock(block) });

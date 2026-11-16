@@ -368,8 +368,7 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
                     id: true,
                     title: true,
                     text: true,
-                    buttonLabel: true,
-                    buttonUrl: true,
+                    buttons: true,
                     sortOrder: true,
                   },
                 },
@@ -390,14 +389,30 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
       return;
     }
 
+    function normalizeButtons(value: unknown) {
+      if (!Array.isArray(value)) return [];
+      return value.flatMap((item) => {
+        if (
+          typeof item === "object" &&
+          item &&
+          typeof (item as { label?: unknown }).label === "string" &&
+          typeof (item as { url?: unknown }).url === "string"
+        ) {
+          const label = (item as { label: string }).label.trim();
+          const url = (item as { url: string }).url.trim();
+          return label && url ? [{ label, url }] : [];
+        }
+        return [];
+      });
+    }
+
     function mapContentBlocks(
       links: Array<{
         contentBlock: {
           id: string;
           title: string;
           text: string;
-          buttonLabel: string | null;
-          buttonUrl: string | null;
+          buttons: unknown;
           sortOrder: number;
         };
       }>,
@@ -409,8 +424,7 @@ publicRouter.get("/:entitySlug/flows/:flowSlug", async (req, res, next) => {
           id: block.id,
           title: block.title,
           text: block.text,
-          buttonLabel: block.buttonLabel,
-          buttonUrl: block.buttonUrl,
+          buttons: normalizeButtons(block.buttons),
         }));
     }
 

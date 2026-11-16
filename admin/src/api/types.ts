@@ -172,12 +172,16 @@ export type ContentBlockStepRef = {
   flow: { id: string; name: string; slug: string };
 };
 
+export type ContentBlockButton = {
+  label: string;
+  url: string;
+};
+
 export type ContentBlock = {
   id: string;
   title: string;
   text: string;
-  buttonLabel: string | null;
-  buttonUrl: string | null;
+  buttons: ContentBlockButton[];
   active: boolean;
   sortOrder: number;
   entityId: string;

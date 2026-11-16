@@ -228,18 +228,18 @@ model FlowStep {
 }
 
 model ContentBlock {
-  id          String             @id @default(cuid())
-  title       String             @db.VarChar(200)
-  text        String             @db.Text
-  buttonLabel String?            @db.VarChar(120)
-  buttonUrl   String?            @db.Text
-  active      Boolean            @default(true)
-  sortOrder   Int                @default(0)
-  entityId    String
-  entity      Entity             @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  steps       ContentBlockStep[]
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id        String             @id @default(cuid())
+  title     String             @db.VarChar(200)
+  text      String             @db.Text
+  /// Array of { label: string, url: string }
+  buttons   Json               @default("[]")
+  active    Boolean            @default(true)
+  sortOrder Int                @default(0)
+  entityId  String
+  entity    Entity             @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  steps     ContentBlockStep[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
   @@index([entityId, sortOrder])
 }
