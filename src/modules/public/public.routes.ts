@@ -674,6 +674,7 @@ publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
       end: body.end,
       sellerId: body.sellerId,
       productName: body.productName,
+      flowSlug: body.flowSlug,
       customer: body.customer,
       publicBaseUrl,
     });

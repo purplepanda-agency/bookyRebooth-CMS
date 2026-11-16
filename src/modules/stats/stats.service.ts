@@ -30,7 +30,7 @@ export type StatsOverview = {
     formSubmitError: number;
     emailError: number;
     makeError: number;
-    makeComingSoon: true;
+    makeComingSoon: false;
   };
   analytics: {
     successfulSubmissions: number;
@@ -312,7 +312,7 @@ export async function getStatsOverview(input: {
       formSubmitError: failedSubmissions,
       emailError: emailErrors,
       makeError: makeErrors,
-      makeComingSoon: true,
+      makeComingSoon: false,
     },
     analytics: {
       successfulSubmissions,

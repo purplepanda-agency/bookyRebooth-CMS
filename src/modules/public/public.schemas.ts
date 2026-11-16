@@ -28,6 +28,13 @@ export const publicCreateBookingSchema = z.object({
   end: timeSchema,
   sellerId: z.string().min(1).max(64).nullable(),
   productName: z.string().max(200).nullable().optional(),
+  flowSlug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .optional(),
   privacyAccepted: z.literal(true),
   recaptchaToken: z.string().min(1).max(4000),
   customer: z.object({

@@ -27,7 +27,7 @@ type StatsOverview = {
     formSubmitError: number;
     emailError: number;
     makeError: number;
-    makeComingSoon: true;
+    makeComingSoon: boolean;
   };
   analytics: {
     successfulSubmissions: number;
@@ -460,12 +460,16 @@ export function HomePage() {
                       overview.health.emailError}
                   </strong>
                 </div>
-                <div className="stats-card stats-card-muted">
+                <div
+                  className={`stats-card${overview.health.makeComingSoon ? " stats-card-muted" : ""}`}
+                >
                   <span className="stats-card-label">Make-fouten</span>
                   <strong className="stats-card-value">
                     {overview.analytics.makeErrors ?? overview.health.makeError}
                   </strong>
-                  <span className="stats-card-note">Coming soon</span>
+                  {overview.health.makeComingSoon ? (
+                    <span className="stats-card-note">Coming soon</span>
+                  ) : null}
                 </div>
               </div>
 

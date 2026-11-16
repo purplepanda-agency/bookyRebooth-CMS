@@ -13,6 +13,12 @@ import {
   sendGridMissingConfig,
 } from "../../lib/sendgrid.js";
 import { env } from "../../config/env.js";
+import {
+  isWebhookPayload,
+  renderWebhookPayload,
+  sendWebhook,
+  type WebhookPayload,
+} from "../../lib/webhook.js";
 import { getAvailabilitySlots } from "../availability/availability.service.js";
 
 export type CreateBookingInput = {
@@ -34,8 +40,52 @@ export type CreateBookingInput = {
     extraInfo?: string;
   };
   productName?: string | null;
+  flowSlug?: string | null;
   publicBaseUrl: string;
 };
+
+type ConfirmationWebhookConfig = {
+  webhookUrl: string;
+  webhookName: string;
+  webhookPayload: WebhookPayload | null;
+};
+
+async function loadConfirmationWebhookConfig(
+  entityId: string,
+  flowSlug?: string | null,
+): Promise<ConfirmationWebhookConfig | null> {
+  const slug = flowSlug?.trim().toLowerCase();
+  if (!slug) return null;
+
+  const flow = await prisma.flow.findFirst({
+    where: { entityId, slug, active: true },
+    select: {
+      steps: {
+        where: { type: "CONFIRMATION" },
+        take: 1,
+        select: { config: true },
+      },
+    },
+  });
+
+  const config = flow?.steps[0]?.config;
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return null;
+  }
+
+  const record = config as Record<string, unknown>;
+  const webhookUrl =
+    typeof record.webhookUrl === "string" ? record.webhookUrl.trim() : "";
+  if (!webhookUrl) return null;
+
+  const webhookName =
+    typeof record.webhookName === "string" ? record.webhookName.trim() : "";
+  const webhookPayload = isWebhookPayload(record.webhookPayload)
+    ? (record.webhookPayload as WebhookPayload)
+    : null;
+
+  return { webhookUrl, webhookName, webhookPayload };
+}
 
 export type CreateBookingResult = {
   seller: {
@@ -248,6 +298,62 @@ export async function createBooking(
         categoryId: availability.data.category.id,
         message: mailError,
       });
+    }
+
+    const webhookConfig = await loadConfirmationWebhookConfig(
+      input.entityId,
+      input.flowSlug,
+    );
+    if (webhookConfig) {
+      const payload = renderWebhookPayload(webhookConfig.webhookPayload, {
+        webhookName: webhookConfig.webhookName,
+        entityName: input.entityName,
+        date: input.date,
+        start: input.start,
+        end: input.end,
+        productName: input.productName?.trim() || null,
+        seller: {
+          id: chosen.sellerId,
+          name: chosen.name,
+        },
+        location: {
+          id: location.id,
+          name: location.name,
+          permalink: location.permalink,
+          address: location.address,
+        },
+        category: {
+          id: availability.data.category.id,
+          name: availability.data.category.name,
+          slug: availability.data.category.slug,
+        },
+        customer: {
+          firstName: input.customer.firstName.trim(),
+          lastName: input.customer.lastName.trim(),
+          fullName: customerName,
+          phone: input.customer.phone.trim(),
+          email: input.customer.email.trim(),
+          address: input.customer.address?.trim() || "",
+          currentVehicle: input.customer.currentVehicle?.trim() || "",
+          extraInfo: input.customer.extraInfo?.trim() || "",
+        },
+      });
+
+      const webhookResult = await sendWebhook(
+        webhookConfig.webhookUrl,
+        payload,
+      );
+      if (!webhookResult.ok) {
+        console.error("[booking] Webhook error:", webhookResult.error);
+        trackEvent({
+          type: "MAKE_ERROR",
+          entityId: input.entityId,
+          sellerId: chosen.sellerId,
+          locationId: location.id,
+          categoryId: availability.data.category.id,
+          message: webhookResult.error,
+        });
+      }
     }
 
     return {

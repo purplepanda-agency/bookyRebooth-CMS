@@ -60,8 +60,36 @@ const categoriesConfigSchema = z.object({
 
 const sellersAgendaConfigSchema = z.object({}).strict();
 
+const webhookUrlSchema = z
+  .string()
+  .max(2000)
+  .optional()
+  .transform((value) => (value ?? "").trim())
+  .superRefine((value, ctx) => {
+    if (!value) return;
+    const parsed = z.string().url().safeParse(value);
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Ongeldige webhook-URL",
+      });
+    }
+  });
+
+const webhookPayloadSchema = z
+  .record(z.string(), z.unknown())
+  .optional()
+  .nullable();
+
 const confirmationConfigSchema = z.object({
   title: stepTitleSchema,
+  webhookUrl: webhookUrlSchema,
+  webhookName: z
+    .string()
+    .max(120)
+    .optional()
+    .transform((value) => (value ?? "").trim()),
+  webhookPayload: webhookPayloadSchema,
 });
 
 const optionalStepId = z.string().cuid().optional();

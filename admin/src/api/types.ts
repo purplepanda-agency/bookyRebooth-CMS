@@ -162,7 +162,12 @@ export type FlowStep =
   | {
       id?: string;
       type: "CONFIRMATION";
-      config: { title: string };
+      config: {
+        title: string;
+        webhookUrl: string;
+        webhookName: string;
+        webhookPayload: Record<string, unknown>;
+      };
     };
 
 export type ContentBlockStepRef = {
