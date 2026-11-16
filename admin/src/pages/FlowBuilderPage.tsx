@@ -232,7 +232,9 @@ export function FlowBuilderPage() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [featuredImage, setFeaturedImage] = useState<string | null>(null);
   const [active, setActive] = useState(true);
-  const [entitySlug, setEntitySlug] = useState(user?.entity?.slug || "global");
+  const [entitySlug, setEntitySlug] = useState(
+    user?.entities?.[0]?.slug || "global",
+  );
   const [uploadingFeatured, setUploadingFeatured] = useState(false);
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [confirmationStep, setConfirmationStep] = useState<DraftStep>(() =>

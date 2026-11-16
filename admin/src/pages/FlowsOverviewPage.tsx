@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import type { Entity, Flow } from "../api/types";
-import { useAuth } from "../auth/AuthContext";
+import type { Flow } from "../api/types";
+import { useAccessibleEntities } from "../auth/entityAccess";
 
 function IconChevronUp() {
   return (
@@ -33,11 +33,9 @@ function IconChevronDown() {
 }
 
 export function FlowsOverviewPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const isSuper = user?.role === "SUPER_ADMIN";
+  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
   const [flows, setFlows] = useState<Flow[]>([]);
-  const [entities, setEntities] = useState<Entity[]>([]);
   const [filterEntityId, setFilterEntityId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +49,8 @@ export function FlowsOverviewPage() {
       setLoading(true);
       setError(null);
       try {
-        if (isSuper) {
-          const entitiesData = await api<{ entities: Entity[] }>("/entities");
-          if (!cancelled) setEntities(entitiesData.entities);
-        }
-
         const query =
-          isSuper && filterEntityId
+          canChooseEntity && filterEntityId
             ? `?entityId=${encodeURIComponent(filterEntityId)}`
             : "";
         const data = await api<{ flows: Flow[] }>(`/flows${query}`);
@@ -75,15 +68,15 @@ export function FlowsOverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper, filterEntityId]);
+  }, [canChooseEntity, filterEntityId]);
 
   async function createFlow() {
     setCreating(true);
     setError(null);
     try {
-      const entityId = isSuper
+      const entityId = canChooseEntity
         ? filterEntityId || entities[0]?.id
-        : user?.entityId;
+        : fixedEntity?.id;
 
       if (!entityId) {
         setError("Kies eerst een entiteit");
@@ -96,7 +89,7 @@ export function FlowsOverviewPage() {
         body: JSON.stringify({
           name: "Nieuwe flow",
           steps: [],
-          ...(isSuper ? { entityId } : {}),
+          entityId,
         }),
       });
 
@@ -171,7 +164,7 @@ export function FlowsOverviewPage() {
         method: "PUT",
         body: JSON.stringify({
           orderedIds,
-          ...(isSuper ? { entityId: flow.entityId } : {}),
+          entityId: flow.entityId,
         }),
       });
       setFlows((prev) => {
@@ -203,7 +196,7 @@ export function FlowsOverviewPage() {
         </button>
       </div>
 
-      {isSuper ? (
+      {canChooseEntity ? (
         <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
           Filter op entiteit
           <select
@@ -239,7 +232,7 @@ export function FlowsOverviewPage() {
                 <th>Naam</th>
                 <th>Slug</th>
                 <th>Status</th>
-                {isSuper ? <th>Entiteit</th> : null}
+                {canChooseEntity ? <th>Entiteit</th> : null}
                 <th>Stappen</th>
                 <th></th>
               </tr>
@@ -335,7 +328,7 @@ export function FlowsOverviewPage() {
                         </span>
                       </label>
                     </td>
-                    {isSuper ? <td>{flow.entity?.name ?? "—"}</td> : null}
+                    {canChooseEntity ? <td>{flow.entity?.name ?? "—"}</td> : null}
                     <td>
                       <span className="badge">{flow._count?.steps ?? 0}</span>
                     </td>

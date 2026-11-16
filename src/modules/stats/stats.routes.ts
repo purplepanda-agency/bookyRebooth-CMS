@@ -10,7 +10,7 @@ statsRouter.use(requireAuth);
 /**
  * GET /api/stats/overview?from=YYYY-MM-DD&to=YYYY-MM-DD&entityId=
  * Legacy: ?days=30 still works when from/to are omitted.
- * Entity admins are forced to their own entity; super admins may filter.
+ * Admins are limited to their assigned entities. Super admins may filter.
  */
 statsRouter.get("/overview", async (req, res, next) => {
   try {
@@ -40,6 +40,7 @@ statsRouter.get("/overview", async (req, res, next) => {
       to,
       days: days !== undefined && Number.isFinite(days) ? days : undefined,
       entityId: scope.entityId || null,
+      entityIds: scope.entityIds ?? null,
     });
 
     res.json({ overview });

@@ -9,13 +9,39 @@ import { changePasswordSchema, loginSchema } from "./auth.schemas.js";
 
 export const authRouter = Router();
 
+const entitySummarySelect = {
+  id: true,
+  name: true,
+  slug: true,
+  active: true,
+} as const;
+
+const userWithEntities = {
+  entities: {
+    select: {
+      entity: { select: entitySummarySelect },
+    },
+  },
+} as const;
+
+function publicEntities(
+  role: "SUPER_ADMIN" | "ADMIN",
+  links: Array<{ entity: { id: string; name: string; slug: string; active: boolean } }>,
+) {
+  if (role === "SUPER_ADMIN") return [];
+  return links
+    .map((link) => link.entity)
+    .filter((entity) => entity.active)
+    .sort((a, b) => a.name.localeCompare(b.name, "nl"));
+}
+
 authRouter.post("/login", async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({
       where: { email: body.email.toLowerCase() },
-      include: { entity: true },
+      include: userWithEntities,
     });
 
     if (!user) {
@@ -29,8 +55,9 @@ authRouter.post("/login", async (req, res, next) => {
       return;
     }
 
-    if (user.role === "ENTITY_ADMIN" && user.entity && !user.entity.active) {
-      res.status(403).json({ error: "Entity is inactive" });
+    const entities = publicEntities(user.role, user.entities);
+    if (user.role === "ADMIN" && entities.length === 0) {
+      res.status(403).json({ error: "Geen actieve entiteit toegewezen" });
       return;
     }
 
@@ -40,16 +67,15 @@ authRouter.post("/login", async (req, res, next) => {
       data: { lastLoggedInAt },
     });
 
-    const tokenPayload = {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      entityId: user.entityId,
-    };
-
-    const token = jwt.sign(tokenPayload, env.JWT_SECRET, {
-      expiresIn: env.JWT_EXPIRES_IN,
-    } as SignOptions);
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      },
+      env.JWT_SECRET,
+      { expiresIn: env.JWT_EXPIRES_IN } as SignOptions,
+    );
 
     res.json({
       token,
@@ -57,16 +83,8 @@ authRouter.post("/login", async (req, res, next) => {
         id: user.id,
         email: user.email,
         role: user.role,
-        entityId: user.entityId,
+        entities,
         lastLoggedInAt: lastLoggedInAt.toISOString(),
-        entity: user.entity
-          ? {
-              id: user.entity.id,
-              name: user.entity.name,
-              slug: user.entity.slug,
-              active: user.entity.active,
-            }
-          : null,
       },
     });
   } catch (error) {
@@ -82,16 +100,8 @@ authRouter.get("/me", requireAuth, async (req, res, next) => {
         id: true,
         email: true,
         role: true,
-        entityId: true,
         createdAt: true,
-        entity: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            active: true,
-          },
-        },
+        ...userWithEntities,
       },
     });
 
@@ -100,7 +110,15 @@ authRouter.get("/me", requireAuth, async (req, res, next) => {
       return;
     }
 
-    res.json({ user });
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+        entities: publicEntities(user.role, user.entities),
+      },
+    });
   } catch (error) {
     next(error);
   }

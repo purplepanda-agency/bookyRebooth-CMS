@@ -22,25 +22,34 @@ async function resolveAllowedEntityKey(req: {
     (req.body && typeof req.body.entity === "string" && req.body.entity) ||
     null;
 
-  if (req.user?.role === "ENTITY_ADMIN") {
-    if (!req.user.entityId) {
-      return { error: "Entity admin is not linked to an entity", status: 403 };
+  if (req.user?.role === "ADMIN") {
+    if (req.user.entityIds.length === 0) {
+      return { error: "Admin is niet gekoppeld aan een entiteit", status: 403 };
     }
 
-    const entity = await prisma.entity.findUnique({
-      where: { id: req.user.entityId },
+    const entities = await prisma.entity.findMany({
+      where: { id: { in: req.user.entityIds } },
       select: { slug: true },
     });
 
-    if (!entity) {
+    if (entities.length === 0) {
       return { error: "Entity not found", status: 403 };
     }
 
-    if (requested && sanitizeEntityKey(requested) !== entity.slug) {
-      return { error: "Forbidden for this entity media folder", status: 403 };
+    if (requested) {
+      const key = sanitizeEntityKey(requested);
+      const match = entities.find((entity) => entity.slug === key);
+      if (!match) {
+        return { error: "Forbidden for this entity media folder", status: 403 };
+      }
+      return { entityKey: match.slug };
     }
 
-    return { entityKey: entity.slug };
+    if (entities.length === 1) {
+      return { entityKey: entities[0]!.slug };
+    }
+
+    return { error: "Kies een entiteit voor de upload", status: 400 };
   }
 
   return {

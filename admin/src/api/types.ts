@@ -1,4 +1,4 @@
-export type Role = "SUPER_ADMIN" | "ENTITY_ADMIN";
+export type Role = "SUPER_ADMIN" | "ADMIN";
 
 export type EntitySummary = {
   id: string;
@@ -20,18 +20,16 @@ export type User = {
   id: string;
   email: string;
   role: Role;
-  entityId: string | null;
   lastLoggedInAt?: string | null;
   createdAt?: string;
-  entity?: EntitySummary | null;
+  entities: EntitySummary[];
 };
 
 export type AuthUser = {
   id: string;
   email: string;
   role: Role;
-  entityId: string | null;
-  entity?: EntitySummary | null;
+  entities: EntitySummary[];
 };
 
 export type ProductSetItem = {

@@ -29,11 +29,15 @@ entitiesRouter.get("/:id", async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         users: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            createdAt: true,
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                createdAt: true,
+              },
+            },
           },
         },
       },
@@ -44,7 +48,12 @@ entitiesRouter.get("/:id", async (req, res, next) => {
       return;
     }
 
-    res.json({ entity });
+    res.json({
+      entity: {
+        ...entity,
+        users: entity.users.map((link) => link.user),
+      },
+    });
   } catch (error) {
     next(error);
   }

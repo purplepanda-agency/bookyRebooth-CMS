@@ -1,28 +1,42 @@
 import { z } from "zod";
 import { strongPasswordSchema } from "../../lib/password.js";
 
+const roleSchema = z.enum(["SUPER_ADMIN", "ADMIN"]);
+
 export const createUserSchema = z
   .object({
     email: z.string().email(),
     password: strongPasswordSchema,
-    role: z.enum(["SUPER_ADMIN", "ENTITY_ADMIN"]).optional(),
-    entityId: z.string().cuid().optional().nullable(),
+    role: roleSchema.optional(),
+    entityIds: z.array(z.string().cuid()).optional(),
   })
   .superRefine((data, ctx) => {
-    // Role/entity rules are enforced in the route based on who is logged in.
-    if (data.role === "SUPER_ADMIN" && data.entityId) {
+    if (
+      data.role === "SUPER_ADMIN" &&
+      data.entityIds &&
+      data.entityIds.length > 0
+    ) {
       ctx.addIssue({
         code: "custom",
-        path: ["entityId"],
-        message: "SUPER_ADMIN must not have an entityId",
+        path: ["entityIds"],
+        message: "Een super admin is aan alle entiteiten gekoppeld",
       });
     }
 
-    if (data.role === "ENTITY_ADMIN" && data.entityId === null) {
+    if (data.role === "ADMIN" && data.entityIds && data.entityIds.length === 0) {
       ctx.addIssue({
         code: "custom",
-        path: ["entityId"],
-        message: "ENTITY_ADMIN requires an entityId",
+        path: ["entityIds"],
+        message: "Kies minstens één entiteit",
       });
     }
+  });
+
+export const updateUserSchema = z
+  .object({
+    role: roleSchema.optional(),
+    entityIds: z.array(z.string().cuid()).optional(),
+  })
+  .refine((data) => data.role !== undefined || data.entityIds !== undefined, {
+    message: "Niets om bij te werken",
   });

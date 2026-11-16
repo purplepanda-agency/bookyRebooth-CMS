@@ -19,15 +19,15 @@ async function main() {
     update: {
       passwordHash,
       role: Role.SUPER_ADMIN,
-      entityId: null,
     },
     create: {
       email: adminEmail.toLowerCase(),
       passwordHash,
       role: Role.SUPER_ADMIN,
-      entityId: null,
     },
   });
+
+  await prisma.userEntity.deleteMany({ where: { userId: admin.id } });
 
   console.log(`Super admin ready: ${admin.email}`);
 
@@ -62,19 +62,25 @@ async function main() {
     where: { email: demoEmail.toLowerCase() },
     update: {
       passwordHash: demoHash,
-      role: Role.ENTITY_ADMIN,
-      entityId: entity.id,
+      role: Role.ADMIN,
     },
     create: {
       email: demoEmail.toLowerCase(),
       passwordHash: demoHash,
-      role: Role.ENTITY_ADMIN,
-      entityId: entity.id,
+      role: Role.ADMIN,
     },
   });
 
+  await prisma.userEntity.upsert({
+    where: {
+      userId_entityId: { userId: demoAdmin.id, entityId: entity.id },
+    },
+    update: {},
+    create: { userId: demoAdmin.id, entityId: entity.id },
+  });
+
   console.log(`Demo entity ready: ${entity.slug}`);
-  console.log(`Entity admin ready: ${demoAdmin.email}`);
+  console.log(`Admin ready: ${demoAdmin.email}`);
 }
 
 main()

@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, uploadMedia } from "../api/client";
-import type { Entity, Location } from "../api/types";
-import { useAuth } from "../auth/AuthContext";
+import type { Location } from "../api/types";
+import { useAccessibleEntities } from "../auth/entityAccess";
 
 type FormState = {
   name: string;
@@ -34,10 +34,8 @@ function slugify(value: string) {
 }
 
 export function LocationsPage() {
-  const { user } = useAuth();
-  const isSuper = user?.role === "SUPER_ADMIN";
+  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
   const [locations, setLocations] = useState<Location[]>([]);
-  const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -49,12 +47,11 @@ export function LocationsPage() {
   const [filterEntityId, setFilterEntityId] = useState("");
 
   const mediaEntityKey = useMemo(() => {
-    if (!isSuper) return user?.entity?.slug || "global";
     const selected =
       entities.find((entity) => entity.id === form.entityId)?.slug ||
       entities.find((entity) => entity.id === filterEntityId)?.slug;
-    return selected || "global";
-  }, [isSuper, user?.entity?.slug, entities, form.entityId, filterEntityId]);
+    return selected || fixedEntity?.slug || "global";
+  }, [entities, form.entityId, filterEntityId, fixedEntity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,13 +60,8 @@ export function LocationsPage() {
       setLoading(true);
       setError(null);
       try {
-        if (isSuper) {
-          const entitiesData = await api<{ entities: Entity[] }>("/entities");
-          if (!cancelled) setEntities(entitiesData.entities);
-        }
-
         const query =
-          isSuper && filterEntityId
+          canChooseEntity && filterEntityId
             ? `?entityId=${encodeURIComponent(filterEntityId)}`
             : "";
         const data = await api<{ locations: Location[] }>(`/locations${query}`);
@@ -87,11 +79,11 @@ export function LocationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper, filterEntityId]);
+  }, [canChooseEntity, filterEntityId]);
 
   async function reload() {
     const query =
-      isSuper && filterEntityId
+      canChooseEntity && filterEntityId
         ? `?entityId=${encodeURIComponent(filterEntityId)}`
         : "";
     const data = await api<{ locations: Location[] }>(`/locations${query}`);
@@ -103,9 +95,9 @@ export function LocationsPage() {
     setPermalinkTouched(false);
     setForm({
       ...emptyForm,
-      entityId: isSuper
+      entityId: canChooseEntity
         ? filterEntityId || entities[0]?.id || ""
-        : user?.entityId || "",
+        : fixedEntity?.id || "",
     });
     setShowForm(true);
   }
@@ -160,7 +152,7 @@ export function LocationsPage() {
           }),
         });
       } else {
-        if (isSuper && !form.entityId) {
+        if (canChooseEntity && !form.entityId) {
           setError("Kies een entiteit");
           setSaving(false);
           return;
@@ -176,7 +168,7 @@ export function LocationsPage() {
             phone: form.phone,
             email: form.email,
             permalink: form.permalink,
-            ...(isSuper ? { entityId: form.entityId } : {}),
+            ...(canChooseEntity ? { entityId: form.entityId } : {}),
           }),
         });
       }
@@ -215,7 +207,7 @@ export function LocationsPage() {
         </button>
       </div>
 
-      {isSuper ? (
+      {canChooseEntity ? (
         <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
           Filter op entiteit
           <select
@@ -248,7 +240,7 @@ export function LocationsPage() {
             <thead>
               <tr>
                 <th>Naam</th>
-                {isSuper ? <th>Entiteit</th> : null}
+                {canChooseEntity ? <th>Entiteit</th> : null}
                 <th>Adres</th>
                 <th>Permalink</th>
                 <th></th>
@@ -281,7 +273,7 @@ export function LocationsPage() {
                       <span>{location.name}</span>
                     </div>
                   </td>
-                  {isSuper ? <td>{location.entity?.name ?? "—"}</td> : null}
+                  {canChooseEntity ? <td>{location.entity?.name ?? "—"}</td> : null}
                   <td>{location.address}</td>
                   <td>
                     <span className="badge">{location.permalink}</span>
@@ -337,7 +329,7 @@ export function LocationsPage() {
           <form id="location-form" className="drawer stack" onSubmit={onSubmit}>
             <h2>{editingId ? "Locatie bewerken" : "Nieuwe locatie"}</h2>
 
-            {isSuper && !editingId ? (
+            {canChooseEntity && !editingId ? (
               <label>
                 Entiteit
                 <select

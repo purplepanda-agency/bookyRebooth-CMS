@@ -1,39 +1,94 @@
 import type { AuthUser } from "../types/express.js";
 
+export type EntityScopeError = { error: string; status: number };
+
+export type EntityScopeOk = {
+  entityId?: string;
+  entityIds?: string[];
+};
+
+function requestedId(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function canAccessEntity(user: AuthUser, entityId: string) {
+  if (user.role === "SUPER_ADMIN") return true;
+  return user.entityIds.includes(entityId);
+}
+
+export function prismaEntityWhere(scope: EntityScopeOk) {
+  if (scope.entityId) return { entityId: scope.entityId };
+  if (scope.entityIds && scope.entityIds.length > 0) {
+    return { entityId: { in: scope.entityIds } };
+  }
+  return undefined;
+}
+
 export function resolveEntityIdForWrite(
   user: AuthUser,
   requestedEntityId?: string | null,
-): { entityId: string } | { error: string; status: number } {
-  if (user.role === "ENTITY_ADMIN") {
-    if (!user.entityId) {
-      return { error: "Entity admin is not linked to an entity", status: 403 };
+): { entityId: string } | EntityScopeError {
+  const requested = requestedId(requestedEntityId);
+
+  if (user.role === "ADMIN") {
+    if (user.entityIds.length === 0) {
+      return { error: "Admin is niet gekoppeld aan een entiteit", status: 403 };
     }
-    if (requestedEntityId && requestedEntityId !== user.entityId) {
-      return { error: "Forbidden for this entity", status: 403 };
+
+    if (user.entityIds.length === 1) {
+      const only = user.entityIds[0]!;
+      if (requested && requested !== only) {
+        return { error: "Geen toegang tot deze entiteit", status: 403 };
+      }
+      return { entityId: only };
     }
-    return { entityId: user.entityId };
+
+    if (!requested) {
+      return { error: "entityId is verplicht", status: 400 };
+    }
+
+    if (!user.entityIds.includes(requested)) {
+      return { error: "Geen toegang tot deze entiteit", status: 403 };
+    }
+
+    return { entityId: requested };
   }
 
-  if (!requestedEntityId) {
-    return { error: "entityId is required", status: 400 };
+  if (!requested) {
+    return { error: "entityId is verplicht", status: 400 };
   }
 
-  return { entityId: requestedEntityId };
+  return { entityId: requested };
 }
 
 export function resolveEntityFilter(
   user: AuthUser,
   queryEntityId?: string | null,
-): { entityId?: string } | { error: string; status: number } {
-  if (user.role === "ENTITY_ADMIN") {
-    if (!user.entityId) {
-      return { error: "Entity admin is not linked to an entity", status: 403 };
+): EntityScopeOk | EntityScopeError {
+  const requested = requestedId(queryEntityId);
+
+  if (user.role === "ADMIN") {
+    if (user.entityIds.length === 0) {
+      return { error: "Admin is niet gekoppeld aan een entiteit", status: 403 };
     }
-    return { entityId: user.entityId };
+
+    if (requested) {
+      if (!user.entityIds.includes(requested)) {
+        return { error: "Geen toegang tot deze entiteit", status: 403 };
+      }
+      return { entityId: requested };
+    }
+
+    if (user.entityIds.length === 1) {
+      return { entityId: user.entityIds[0] };
+    }
+
+    return { entityIds: user.entityIds };
   }
 
-  if (queryEntityId) {
-    return { entityId: queryEntityId };
+  if (requested) {
+    return { entityId: requested };
   }
 
   return {};

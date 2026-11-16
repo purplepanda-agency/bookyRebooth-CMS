@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, uploadMedia } from "../api/client";
-import type { Category, Entity } from "../api/types";
-import { useAuth } from "../auth/AuthContext";
+import type { Category } from "../api/types";
+import { useAccessibleEntities } from "../auth/entityAccess";
 
 type FormState = {
   name: string;
@@ -26,10 +26,8 @@ function slugify(value: string) {
 }
 
 export function CategoriesPage() {
-  const { user } = useAuth();
-  const isSuper = user?.role === "SUPER_ADMIN";
+  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
   const [categories, setCategories] = useState<Category[]>([]);
-  const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -41,12 +39,11 @@ export function CategoriesPage() {
   const [filterEntityId, setFilterEntityId] = useState("");
 
   const mediaEntityKey = useMemo(() => {
-    if (!isSuper) return user?.entity?.slug || "global";
     const selected =
       entities.find((entity) => entity.id === form.entityId)?.slug ||
       entities.find((entity) => entity.id === filterEntityId)?.slug;
-    return selected || "global";
-  }, [isSuper, user?.entity?.slug, entities, form.entityId, filterEntityId]);
+    return selected || fixedEntity?.slug || "global";
+  }, [entities, form.entityId, filterEntityId, fixedEntity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,13 +52,8 @@ export function CategoriesPage() {
       setLoading(true);
       setError(null);
       try {
-        if (isSuper) {
-          const entitiesData = await api<{ entities: Entity[] }>("/entities");
-          if (!cancelled) setEntities(entitiesData.entities);
-        }
-
         const query =
-          isSuper && filterEntityId
+          canChooseEntity && filterEntityId
             ? `?entityId=${encodeURIComponent(filterEntityId)}`
             : "";
         const data = await api<{ categories: Category[] }>(
@@ -81,11 +73,11 @@ export function CategoriesPage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper, filterEntityId]);
+  }, [canChooseEntity, filterEntityId]);
 
   async function reload() {
     const query =
-      isSuper && filterEntityId
+      canChooseEntity && filterEntityId
         ? `?entityId=${encodeURIComponent(filterEntityId)}`
         : "";
     const data = await api<{ categories: Category[] }>(`/categories${query}`);
@@ -97,9 +89,9 @@ export function CategoriesPage() {
     setSlugTouched(false);
     setForm({
       ...emptyForm,
-      entityId: isSuper
+      entityId: canChooseEntity
         ? filterEntityId || entities[0]?.id || ""
-        : user?.entityId || "",
+        : fixedEntity?.id || "",
     });
     setShowForm(true);
   }
@@ -146,7 +138,7 @@ export function CategoriesPage() {
           }),
         });
       } else {
-        if (isSuper && !form.entityId) {
+        if (canChooseEntity && !form.entityId) {
           setError("Kies een entiteit");
           setSaving(false);
           return;
@@ -158,7 +150,7 @@ export function CategoriesPage() {
             name: form.name,
             imageUrl: form.imageUrl || null,
             slug: form.slug,
-            ...(isSuper ? { entityId: form.entityId } : {}),
+            ...(canChooseEntity ? { entityId: form.entityId } : {}),
           }),
         });
       }
@@ -197,7 +189,7 @@ export function CategoriesPage() {
         </button>
       </div>
 
-      {isSuper ? (
+      {canChooseEntity ? (
         <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
           Filter op entiteit
           <select
@@ -230,7 +222,7 @@ export function CategoriesPage() {
             <thead>
               <tr>
                 <th>Naam</th>
-                {isSuper ? <th>Entiteit</th> : null}
+                {canChooseEntity ? <th>Entiteit</th> : null}
                 <th>Slug</th>
                 <th></th>
               </tr>
@@ -274,7 +266,7 @@ export function CategoriesPage() {
                       <span>{category.name}</span>
                     </div>
                   </td>
-                  {isSuper ? <td>{category.entity?.name ?? "—"}</td> : null}
+                  {canChooseEntity ? <td>{category.entity?.name ?? "—"}</td> : null}
                   <td>
                     <span className="badge">{category.slug}</span>
                   </td>
@@ -329,7 +321,7 @@ export function CategoriesPage() {
           <form id="category-form" className="drawer stack" onSubmit={onSubmit}>
             <h2>{editingId ? "Categorie bewerken" : "Nieuwe categorie"}</h2>
 
-            {isSuper && !editingId ? (
+            {canChooseEntity && !editingId ? (
               <label>
                 Entiteit
                 <select

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { requireAuth } from "../../middleware/auth.js";
 import {
+  canAccessEntity,
+  prismaEntityWhere,
   resolveEntityFilter,
   resolveEntityIdForWrite,
 } from "../../lib/entityScope.js";
@@ -133,7 +135,7 @@ flowsRouter.get("/", async (req, res, next) => {
     }
 
     const flows = await prisma.flow.findMany({
-      where: filter.entityId ? { entityId: filter.entityId } : undefined,
+      where: prismaEntityWhere(filter),
       orderBy: [
         { sortOrder: "asc" },
         { createdAt: "asc" },
@@ -216,10 +218,7 @@ flowsRouter.get("/:id", async (req, res, next) => {
       return;
     }
 
-    if (
-      req.user!.role === "ENTITY_ADMIN" &&
-      flow.entityId !== req.user!.entityId
-    ) {
+    if (!canAccessEntity(req.user!, flow.entityId)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -303,10 +302,7 @@ flowsRouter.put("/:id", async (req, res, next) => {
       return;
     }
 
-    if (
-      req.user!.role === "ENTITY_ADMIN" &&
-      existing.entityId !== req.user!.entityId
-    ) {
+    if (!canAccessEntity(req.user!, existing.entityId)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -368,10 +364,7 @@ flowsRouter.patch("/:id", async (req, res, next) => {
       return;
     }
 
-    if (
-      req.user!.role === "ENTITY_ADMIN" &&
-      existing.entityId !== req.user!.entityId
-    ) {
+    if (!canAccessEntity(req.user!, existing.entityId)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -401,10 +394,7 @@ flowsRouter.delete("/:id", async (req, res, next) => {
       return;
     }
 
-    if (
-      req.user!.role === "ENTITY_ADMIN" &&
-      existing.entityId !== req.user!.entityId
-    ) {
+    if (!canAccessEntity(req.user!, existing.entityId)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

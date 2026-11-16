@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
+import { canAccessEntity } from "../../lib/entityScope.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { requireRole } from "../../middleware/requireRole.js";
 import {
@@ -39,7 +40,7 @@ productSetsRouter.get("/", async (req, res, next) => {
         : null;
 
     let where:
-      | { entities: { some: { id: string } } }
+      | { entities: { some: { id: string | { in: string[] } } } }
       | undefined;
 
     if (current.role === "SUPER_ADMIN") {
@@ -47,13 +48,21 @@ productSetsRouter.get("/", async (req, res, next) => {
         where = { entities: { some: { id: queryEntityId } } };
       }
     } else {
-      if (!current.entityId) {
-        res
-          .status(403)
-          .json({ error: "Entity admin is not linked to an entity" });
+      if (current.entityIds.length === 0) {
+        res.status(403).json({ error: "Admin is niet gekoppeld aan een entiteit" });
         return;
       }
-      where = { entities: { some: { id: current.entityId } } };
+      if (queryEntityId && !current.entityIds.includes(queryEntityId)) {
+        res.status(403).json({ error: "Geen toegang tot deze entiteit" });
+        return;
+      }
+      where = {
+        entities: {
+          some: {
+            id: queryEntityId ? queryEntityId : { in: current.entityIds },
+          },
+        },
+      };
     }
 
     const productSets = await prisma.productSet.findMany({
@@ -80,14 +89,12 @@ productSetsRouter.get("/:id", async (req, res, next) => {
       return;
     }
 
-    if (current.role !== "SUPER_ADMIN") {
-      if (
-        !current.entityId ||
-        !productSet.entities.some((entity) => entity.id === current.entityId)
-      ) {
-        res.status(404).json({ error: "Product set niet gevonden" });
-        return;
-      }
+    if (
+      current.role !== "SUPER_ADMIN" &&
+      !productSet.entities.some((entity) => canAccessEntity(current, entity.id))
+    ) {
+      res.status(404).json({ error: "Product set niet gevonden" });
+      return;
     }
 
     res.json({ productSet });

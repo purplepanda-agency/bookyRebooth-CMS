@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { requireAuth } from "../../middleware/auth.js";
-import { resolveEntityFilter } from "../../lib/entityScope.js";
+import { canAccessEntity, prismaEntityWhere, resolveEntityFilter } from "../../lib/entityScope.js";
 import {
   checkAvailabilityAt,
   checkCalendarVisibility,
@@ -48,7 +48,7 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
       return;
     }
 
-    if (req.user!.role === "SUPER_ADMIN" && !filter.entityId) {
+    if (!filter.entityId) {
       res.status(400).json({ error: "entityId is verplicht" });
       return;
     }
@@ -113,7 +113,7 @@ sellerConnectionsRouter.post("/availability-test", async (req, res, next) => {
       return;
     }
 
-    if (req.user!.role === "SUPER_ADMIN" && !filter.entityId) {
+    if (!filter.entityId) {
       res.status(400).json({ error: "entityId is verplicht" });
       return;
     }
@@ -200,7 +200,7 @@ sellerConnectionsRouter.post("/availability", async (req, res, next) => {
     const sellers = await prisma.seller.findMany({
       where: {
         active: true,
-        ...(filter.entityId ? { entityId: filter.entityId } : {}),
+        ...prismaEntityWhere(filter),
         ...(sellerIds.length > 0 ? { id: { in: sellerIds } } : {}),
       },
       orderBy: { name: "asc" },
@@ -213,14 +213,9 @@ sellerConnectionsRouter.post("/availability", async (req, res, next) => {
       },
     });
 
-    if (req.user!.role === "ENTITY_ADMIN") {
-      const foreign = sellers.some(
-        (seller) => seller.entityId !== req.user!.entityId,
-      );
-      if (foreign) {
-        res.status(403).json({ error: "Forbidden" });
-        return;
-      }
+    if (sellers.some((seller) => !canAccessEntity(req.user!, seller.entityId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
     }
 
     const results = await checkAvailabilityAt(
@@ -277,7 +272,7 @@ sellerConnectionsRouter.post("/slots", async (req, res, next) => {
       return;
     }
 
-    if (req.user!.role === "SUPER_ADMIN" && !filter.entityId) {
+    if (!filter.entityId) {
       res.status(400).json({ error: "entityId is verplicht" });
       return;
     }

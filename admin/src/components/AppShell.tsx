@@ -4,8 +4,17 @@ import { CMS_VERSION } from "../version";
 
 const roleLabel: Record<string, string> = {
   SUPER_ADMIN: "Super admin",
-  ENTITY_ADMIN: "Entiteit admin",
+  ADMIN: "Admin",
 };
+
+function entityScopeLabel(user: { role: string; entities: { name: string }[] }) {
+  if (user.role === "SUPER_ADMIN") return "Alle entiteiten";
+  if (user.entities.length === 0) return "Geen entiteit";
+  if (user.entities.length <= 2) {
+    return user.entities.map((entity) => entity.name).join(", ");
+  }
+  return `${user.entities.length} entiteiten`;
+}
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : undefined;
@@ -74,7 +83,7 @@ export function AppShell() {
           <div>
             <div>{user?.email}</div>
             <div>{user ? roleLabel[user.role] : ""}</div>
-            {user?.entity?.name ? <div>{user.entity.name}</div> : null}
+            {user ? <div>{entityScopeLabel(user)}</div> : null}
           </div>
           <NavLink to="/account" className={navClass}>
             Wachtwoord wijzigen

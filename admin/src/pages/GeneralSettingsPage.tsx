@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, uploadMedia } from "../api/client";
-import type { Entity } from "../api/types";
-import { useAuth } from "../auth/AuthContext";
+import { useAccessibleEntities } from "../auth/entityAccess";
 import { BasicWysiwyg } from "../components/BasicWysiwyg";
 
 type SettingsTab = "content" | "domain" | "tracking" | "sellers";
@@ -48,11 +47,9 @@ function nextHalfHour() {
 }
 
 export function GeneralSettingsPage() {
-  const { user } = useAuth();
-  const isSuper = user?.role === "SUPER_ADMIN";
+  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
   const [activeTab, setActiveTab] = useState<SettingsTab>("content");
-  const [entities, setEntities] = useState<Entity[]>([]);
-  const [entityId, setEntityId] = useState(user?.entityId || "");
+  const [entityId, setEntityId] = useState(fixedEntity?.id || "");
   const [connections, setConnections] = useState<SellerConnection[]>([]);
   const [configured, setConfigured] = useState(true);
   const [configMessage, setConfigMessage] = useState<string | null>(null);
@@ -88,40 +85,28 @@ export function GeneralSettingsPage() {
   const [savingTracking, setSavingTracking] = useState(false);
 
   const mediaEntityKey = useMemo(() => {
-    if (!isSuper) return user?.entity?.slug || "global";
     return (
-      entities.find((entity) => entity.id === entityId)?.slug || "global"
+      entities.find((entity) => entity.id === entityId)?.slug ||
+      fixedEntity?.slug ||
+      "global"
     );
-  }, [isSuper, user?.entity?.slug, entities, entityId]);
+  }, [entities, entityId, fixedEntity]);
 
   useEffect(() => {
-    if (!isSuper) return;
-    let cancelled = false;
-
-    async function loadEntities() {
-      try {
-        const data = await api<{ entities: Entity[] }>("/entities");
-        if (cancelled) return;
-        setEntities(data.entities);
-        if (!entityId && data.entities[0]) {
-          setEntityId(data.entities[0].id);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Entiteiten laden mislukt");
-        }
+    if (!canChooseEntity) {
+      if (fixedEntity && entityId !== fixedEntity.id) {
+        setEntityId(fixedEntity.id);
       }
+      return;
     }
-
-    void loadEntities();
-    return () => {
-      cancelled = true;
-    };
-  }, [isSuper, entityId]);
+    if (!entityId && entities[0]) {
+      setEntityId(entities[0].id);
+    }
+  }, [canChooseEntity, entities, entityId, fixedEntity]);
 
   useEffect(() => {
     if (activeTab !== "sellers") return;
-    if (isSuper && !entityId) return;
+    if (canChooseEntity && !entityId) return;
 
     let cancelled = false;
 
@@ -131,7 +116,7 @@ export function GeneralSettingsPage() {
       setAvailabilityResults(null);
       try {
         const query =
-          isSuper && entityId
+          canChooseEntity && entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -158,11 +143,11 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, isSuper, entityId]);
+  }, [activeTab, canChooseEntity, entityId]);
 
   useEffect(() => {
     if (activeTab !== "content") return;
-    if (isSuper && !entityId) return;
+    if (canChooseEntity && !entityId) return;
 
     let cancelled = false;
 
@@ -171,7 +156,7 @@ export function GeneralSettingsPage() {
       setError(null);
       try {
         const query =
-          isSuper && entityId
+          canChooseEntity && entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -208,11 +193,11 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, isSuper, entityId]);
+  }, [activeTab, canChooseEntity, entityId]);
 
   useEffect(() => {
     if (activeTab !== "tracking") return;
-    if (isSuper && !entityId) return;
+    if (canChooseEntity && !entityId) return;
 
     let cancelled = false;
 
@@ -221,7 +206,7 @@ export function GeneralSettingsPage() {
       setError(null);
       try {
         const query =
-          isSuper && entityId
+          canChooseEntity && entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -252,11 +237,11 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, isSuper, entityId]);
+  }, [activeTab, canChooseEntity, entityId]);
 
   useEffect(() => {
     if (activeTab !== "domain") return;
-    if (isSuper && !entityId) return;
+    if (canChooseEntity && !entityId) return;
 
     let cancelled = false;
 
@@ -265,7 +250,7 @@ export function GeneralSettingsPage() {
       setError(null);
       try {
         const query =
-          isSuper && entityId
+          canChooseEntity && entityId
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
@@ -289,7 +274,7 @@ export function GeneralSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, isSuper, entityId]);
+  }, [activeTab, canChooseEntity, entityId]);
 
   async function onLogoChange(file: File | null) {
     if (!file) return;
@@ -307,7 +292,7 @@ export function GeneralSettingsPage() {
 
   async function saveContent(event: FormEvent) {
     event.preventDefault();
-    if (isSuper && !entityId) {
+    if (canChooseEntity && !entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -334,7 +319,7 @@ export function GeneralSettingsPage() {
           primaryColor: primaryColor || null,
           secondaryColor: secondaryColor || null,
           accentColor: accentColor || null,
-          ...(isSuper ? { entityId } : {}),
+          ...(canChooseEntity ? { entityId } : {}),
         }),
       });
       setLogoUrl(data.entity.logoUrl || "");
@@ -353,7 +338,7 @@ export function GeneralSettingsPage() {
 
   async function saveDomain(event: FormEvent) {
     event.preventDefault();
-    if (isSuper && !entityId) {
+    if (canChooseEntity && !entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -367,7 +352,7 @@ export function GeneralSettingsPage() {
         method: "PATCH",
         body: JSON.stringify({
           domain: domainValue,
-          ...(isSuper ? { entityId } : {}),
+          ...(canChooseEntity ? { entityId } : {}),
         }),
       });
       setDomainValue(data.entity.domain || "");
@@ -381,7 +366,7 @@ export function GeneralSettingsPage() {
 
   async function saveTracking(event: FormEvent) {
     event.preventDefault();
-    if (isSuper && !entityId) {
+    if (canChooseEntity && !entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -402,7 +387,7 @@ export function GeneralSettingsPage() {
           gtmId: gtmId.trim() || null,
           headerScripts: headerScripts.trim() || null,
           footerScripts: footerScripts.trim() || null,
-          ...(isSuper ? { entityId } : {}),
+          ...(canChooseEntity ? { entityId } : {}),
         }),
       });
       setGtmId(data.entity.gtmId || "");
@@ -419,7 +404,7 @@ export function GeneralSettingsPage() {
   }
 
   async function runAvailabilityTest() {
-    if (isSuper && !entityId) {
+    if (canChooseEntity && !entityId) {
       setError("Kies een entiteit");
       return;
     }
@@ -438,7 +423,7 @@ export function GeneralSettingsPage() {
           date: testDate,
           time: testTime,
           durationMinutes: 30,
-          ...(isSuper ? { entityId } : {}),
+          ...(canChooseEntity ? { entityId } : {}),
         }),
       });
       setAvailabilityResults(data.results);
@@ -479,7 +464,7 @@ export function GeneralSettingsPage() {
 
       {activeTab === "sellers" ? (
         <div className="stack">
-          {isSuper ? (
+          {canChooseEntity ? (
             <label style={{ maxWidth: 320 }}>
               Entiteit
               <select
@@ -660,7 +645,7 @@ export function GeneralSettingsPage() {
         </div>
       ) : activeTab === "domain" ? (
         <div className="stack">
-          {isSuper ? (
+          {canChooseEntity ? (
             <label style={{ maxWidth: 320 }}>
               Entiteit
               <select
@@ -706,7 +691,7 @@ export function GeneralSettingsPage() {
                   <button
                     type="submit"
                     className="btn"
-                    disabled={savingDomain || (isSuper && !entityId)}
+                    disabled={savingDomain || (canChooseEntity && !entityId)}
                   >
                     {savingDomain ? "Opslaan…" : "Opslaan"}
                   </button>
@@ -717,7 +702,7 @@ export function GeneralSettingsPage() {
         </div>
       ) : activeTab === "tracking" ? (
         <div className="stack">
-          {isSuper ? (
+          {canChooseEntity ? (
             <label style={{ maxWidth: 320 }}>
               Entiteit
               <select
@@ -788,7 +773,7 @@ export function GeneralSettingsPage() {
                   <button
                     type="submit"
                     className="btn"
-                    disabled={savingTracking || (isSuper && !entityId)}
+                    disabled={savingTracking || (canChooseEntity && !entityId)}
                   >
                     {savingTracking ? "Opslaan…" : "Opslaan"}
                   </button>
@@ -799,7 +784,7 @@ export function GeneralSettingsPage() {
         </div>
       ) : (
         <div className="stack">
-          {isSuper ? (
+          {canChooseEntity ? (
             <label style={{ maxWidth: 320 }}>
               Entiteit
               <select
@@ -981,7 +966,7 @@ export function GeneralSettingsPage() {
                   type="submit"
                   className="btn"
                   disabled={
-                    savingContent || uploadingLogo || (isSuper && !entityId)
+                    savingContent || uploadingLogo || (canChooseEntity && !entityId)
                   }
                 >
                   {savingContent ? "Opslaan…" : "Opslaan"}

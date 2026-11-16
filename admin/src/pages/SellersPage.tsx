@@ -3,13 +3,12 @@ import Select from "react-select";
 import { api, uploadMedia } from "../api/client";
 import type {
   Category,
-  Entity,
   Location,
   Seller,
   SellerSchedule,
   Weekday,
 } from "../api/types";
-import { useAuth } from "../auth/AuthContext";
+import { useAccessibleEntities } from "../auth/entityAccess";
 
 function IconTrash() {
   return (
@@ -81,12 +80,10 @@ const emptyForm: FormState = {
 };
 
 export function SellersPage() {
-  const { user } = useAuth();
-  const isSuper = user?.role === "SUPER_ADMIN";
+  const { canChooseEntity, entities, fixedEntity } = useAccessibleEntities();
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -98,15 +95,14 @@ export function SellersPage() {
   const [sortKey, setSortKey] = useState<SellerSortKey | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
-  const activeEntityId = isSuper
+  const activeEntityId = canChooseEntity
     ? form.entityId || filterEntityId
-    : user?.entityId || "";
+    : fixedEntity?.id || "";
 
   const mediaEntityKey = useMemo(() => {
-    if (!isSuper) return user?.entity?.slug || "global";
     const selected = entities.find((entity) => entity.id === activeEntityId);
-    return selected?.slug || "global";
-  }, [isSuper, user?.entity?.slug, entities, activeEntityId]);
+    return selected?.slug || fixedEntity?.slug || "global";
+  }, [entities, activeEntityId, fixedEntity]);
 
   const availableWeekdays = useMemo(() => {
     const used = new Set(
@@ -183,13 +179,8 @@ export function SellersPage() {
       setLoading(true);
       setError(null);
       try {
-        if (isSuper) {
-          const entitiesData = await api<{ entities: Entity[] }>("/entities");
-          if (!cancelled) setEntities(entitiesData.entities);
-        }
-
         const entityQuery =
-          isSuper && filterEntityId
+          canChooseEntity && filterEntityId
             ? `?entityId=${encodeURIComponent(filterEntityId)}`
             : "";
 
@@ -217,11 +208,11 @@ export function SellersPage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper, filterEntityId]);
+  }, [canChooseEntity, filterEntityId]);
 
   async function reload() {
     const entityQuery =
-      isSuper && filterEntityId
+      canChooseEntity && filterEntityId
         ? `?entityId=${encodeURIComponent(filterEntityId)}`
         : "";
     const [sellersData, locationsData, categoriesData] = await Promise.all([
@@ -235,13 +226,13 @@ export function SellersPage() {
   }
 
   async function loadEntityScopedData(entityId: string) {
-    if (!entityId && isSuper) {
+    if (!entityId && canChooseEntity) {
       setLocations([]);
       setCategories([]);
       return;
     }
     const query =
-      isSuper && entityId ? `?entityId=${encodeURIComponent(entityId)}` : "";
+      canChooseEntity && entityId ? `?entityId=${encodeURIComponent(entityId)}` : "";
     const [locationsData, categoriesData] = await Promise.all([
       api<{ locations: Location[] }>(`/locations${query}`),
       api<{ categories: Category[] }>(`/categories${query}`),
@@ -251,9 +242,9 @@ export function SellersPage() {
   }
 
   function startCreate() {
-    const entityId = isSuper
+    const entityId = canChooseEntity
       ? filterEntityId || entities[0]?.id || ""
-      : user?.entityId || "";
+      : fixedEntity?.id || "";
     setEditingId(null);
     setForm({
       ...emptyForm,
@@ -359,7 +350,7 @@ export function SellersPage() {
         endTime: item.endTime,
         locationId: item.locationId,
       })),
-      ...(isSuper && !editingId ? { entityId: form.entityId } : {}),
+      ...(canChooseEntity && !editingId ? { entityId: form.entityId } : {}),
     };
 
     try {
@@ -369,7 +360,7 @@ export function SellersPage() {
           body: JSON.stringify(payload),
         });
       } else {
-        if (isSuper && !form.entityId) {
+        if (canChooseEntity && !form.entityId) {
           setError("Kies een entiteit");
           setSaving(false);
           return;
@@ -463,14 +454,14 @@ export function SellersPage() {
     setForm(emptyForm);
   }
 
-  const tableColSpan = (isSuper ? 7 : 6);
+  const tableColSpan = (canChooseEntity ? 7 : 6);
 
   function renderSellerFormFields(mode: "create" | "edit") {
     return (
       <>
         <h2>{mode === "edit" ? "Verkoper bewerken" : "Nieuwe verkoper"}</h2>
 
-        {isSuper && mode === "create" ? (
+        {canChooseEntity && mode === "create" ? (
           <label>
             Entiteit
             <select
@@ -792,7 +783,7 @@ export function SellersPage() {
         </button>
       </div>
 
-      {isSuper ? (
+      {canChooseEntity ? (
         <label style={{ marginBottom: "1rem", maxWidth: 320 }}>
           Filter op entiteit
           <select
@@ -830,7 +821,7 @@ export function SellersPage() {
                   <tr>
                     <th>Status</th>
                     <th>Verkoper</th>
-                    {isSuper ? <th>Entiteit</th> : null}
+                    {canChooseEntity ? <th>Entiteit</th> : null}
                     <th>
                       <button
                         type="button"
@@ -892,7 +883,7 @@ export function SellersPage() {
                             <span>{seller.name}</span>
                           </div>
                         </td>
-                        {isSuper ? (
+                        {canChooseEntity ? (
                           <td>{seller.entity?.name ?? "—"}</td>
                         ) : null}
                         <td>{seller.primaryLocation?.name ?? "—"}</td>
@@ -1002,7 +993,7 @@ export function SellersPage() {
                   <tr>
                     <th>Status</th>
                     <th>Verkoper</th>
-                    {isSuper ? <th>Entiteit</th> : null}
+                    {canChooseEntity ? <th>Entiteit</th> : null}
                     <th>
                       <button
                         type="button"
@@ -1065,7 +1056,7 @@ export function SellersPage() {
                             <span>{seller.name}</span>
                           </div>
                         </td>
-                        {isSuper ? (
+                        {canChooseEntity ? (
                           <td>{seller.entity?.name ?? "—"}</td>
                         ) : null}
                         <td>{seller.primaryLocation?.name ?? "—"}</td>

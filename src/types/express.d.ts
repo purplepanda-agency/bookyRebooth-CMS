@@ -4,7 +4,8 @@ export type AuthUser = {
   id: string;
   email: string;
   role: Role;
-  entityId: string | null;
+  /** Empty for super admin (all entities). Assigned entity ids for admin. */
+  entityIds: string[];
 };
 
 declare global {

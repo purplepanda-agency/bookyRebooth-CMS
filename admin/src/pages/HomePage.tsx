@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { Entity } from "../api/types";
-import { useAuth } from "../auth/AuthContext";
+import { useAccessibleEntities } from "../auth/entityAccess";
 
 type BreakdownRow = {
   id: string;
@@ -302,32 +301,13 @@ function BreakdownTable({
 }
 
 export function HomePage() {
-  const { user } = useAuth();
-  const isSuper = user?.role === "SUPER_ADMIN";
-  const [entities, setEntities] = useState<Entity[]>([]);
+  const { user, isSuper, canChooseEntity, entities } = useAccessibleEntities();
   const [filterEntityId, setFilterEntityId] = useState("");
   const [fromDate, setFromDate] = useState(() => defaultDateRange().from);
   const [toDate, setToDate] = useState(() => defaultDateRange().to);
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isSuper) return;
-    let cancelled = false;
-
-    api<{ entities: Entity[] }>("/entities")
-      .then((data) => {
-        if (!cancelled) setEntities(data.entities);
-      })
-      .catch(() => {
-        /* entity filter is optional */
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isSuper]);
 
   useEffect(() => {
     if (!fromDate || !toDate) return;
@@ -342,7 +322,7 @@ export function HomePage() {
           from: fromDate,
           to: toDate,
         });
-        if (isSuper && filterEntityId) {
+        if (filterEntityId) {
           params.set("entityId", filterEntityId);
         }
         const data = await api<{ overview: StatsOverview }>(
@@ -363,7 +343,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [isSuper, filterEntityId, fromDate, toDate]);
+  }, [filterEntityId, fromDate, toDate]);
 
   return (
     <div>
@@ -372,7 +352,7 @@ export function HomePage() {
           <h1>Overzicht</h1>
           <p>Welkom in de beheeromgeving van Booky CMS.</p>
         </div>
-        {isSuper ? (
+        {canChooseEntity ? (
           <div className="page-header-actions">
             <label className="field" style={{ margin: 0, minWidth: 220 }}>
               <span>Entiteit</span>
@@ -380,7 +360,9 @@ export function HomePage() {
                 value={filterEntityId}
                 onChange={(event) => setFilterEntityId(event.target.value)}
               >
-                <option value="">Alle entiteiten</option>
+                <option value="">
+                  {isSuper ? "Alle entiteiten" : "Alle toegewezen entiteiten"}
+                </option>
                 {entities.map((entity) => (
                   <option key={entity.id} value={entity.id}>
                     {entity.name}
@@ -396,10 +378,15 @@ export function HomePage() {
         <div className="panel-body stack">
           <p>
             Je bent ingelogd als <strong>{user?.email}</strong>
-            {user?.entity?.name ? (
+            {isSuper ? (
+              <> met toegang tot alle entiteiten</>
+            ) : entities.length > 0 ? (
               <>
                 {" "}
-                voor <strong>{user.entity.name}</strong>
+                voor{" "}
+                <strong>
+                  {entities.map((entity) => entity.name).join(", ")}
+                </strong>
               </>
             ) : null}
             .

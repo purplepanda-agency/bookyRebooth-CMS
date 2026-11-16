@@ -9,7 +9,7 @@ datasource db {
 
 enum Role {
   SUPER_ADMIN
-  ENTITY_ADMIN
+  ADMIN
 }
 
 enum Weekday {
@@ -56,8 +56,8 @@ model Entity {
   active          Boolean    @default(true)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
-  users       User[]
-  locations   Location[]
+  users           UserEntity[]
+  locations       Location[]
   sellers     Seller[]
   categories  Category[]
   flows           Flow[]
@@ -66,16 +66,24 @@ model Entity {
 }
 
 model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
+  id             String       @id @default(cuid())
+  email          String       @unique
   passwordHash   String
   role           Role
-  entityId       String?
-  entity         Entity?   @relation(fields: [entityId], references: [id], onDelete: Restrict)
+  entities       UserEntity[]
   lastLoggedInAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
 
+model UserEntity {
+  userId    String
+  entityId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entityId])
   @@index([entityId])
 }
 

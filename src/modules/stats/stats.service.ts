@@ -255,6 +255,7 @@ export async function getStatsOverview(input: {
   /** @deprecated prefer from/to; kept for backwards compatibility */
   days?: number;
   entityId?: string | null;
+  entityIds?: string[] | null;
 }): Promise<StatsOverview> {
   let range = resolveRange({ from: input.from, to: input.to });
 
@@ -271,7 +272,11 @@ export async function getStatsOverview(input: {
 
   const where: Prisma.AnalyticsEventWhereInput = {
     createdAt: { gte: from, lte: to },
-    ...(input.entityId ? { entityId: input.entityId } : {}),
+    ...(input.entityId
+      ? { entityId: input.entityId }
+      : input.entityIds?.length
+        ? { entityId: { in: input.entityIds } }
+        : {}),
   };
 
   const successWhere: Prisma.AnalyticsEventWhereInput = {
