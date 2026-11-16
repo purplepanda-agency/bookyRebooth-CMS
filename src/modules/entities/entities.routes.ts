@@ -69,6 +69,7 @@ entitiesRouter.post("/", async (req, res, next) => {
         slug: body.slug,
         domain: body.domain ? body.domain : null,
         active: body.active,
+        maintenanceMode: body.maintenanceMode,
       },
     });
 

@@ -9,6 +9,7 @@ export type EntitySummary = {
 
 export type Entity = EntitySummary & {
   active: boolean;
+  maintenanceMode?: boolean;
   domain?: string | null;
   createdAt?: string;
   updatedAt?: string;

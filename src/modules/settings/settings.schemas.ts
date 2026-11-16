@@ -37,6 +37,7 @@ const hexColorSchema = z
 
 export const updateDomainSettingsSchema = z.object({
   domain: domainSchema,
+  maintenanceMode: z.boolean(),
   entityId: z.string().cuid().optional(),
 });
 

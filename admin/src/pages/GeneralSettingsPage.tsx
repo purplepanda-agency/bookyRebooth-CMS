@@ -88,6 +88,7 @@ export function GeneralSettingsPage() {
   const [availableCount, setAvailableCount] = useState(0);
   const [checkedCount, setCheckedCount] = useState(0);
   const [domainValue, setDomainValue] = useState("");
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [domainEntityName, setDomainEntityName] = useState("");
   const [loadingDomain, setLoadingDomain] = useState(false);
   const [savingDomain, setSavingDomain] = useState(false);
@@ -303,10 +304,16 @@ export function GeneralSettingsPage() {
             ? `?entityId=${encodeURIComponent(entityId)}`
             : "";
         const data = await api<{
-          entity: { name: string; slug: string; domain: string | null };
+          entity: {
+            name: string;
+            slug: string;
+            domain: string | null;
+            maintenanceMode: boolean;
+          };
         }>(`/settings/domain${query}`);
         if (cancelled) return;
         setDomainValue(data.entity.domain || "");
+        setMaintenanceMode(Boolean(data.entity.maintenanceMode));
         setDomainEntityName(data.entity.name);
       } catch (err) {
         if (!cancelled) {
@@ -438,15 +445,21 @@ export function GeneralSettingsPage() {
     setError(null);
     try {
       const data = await api<{
-        entity: { name: string; domain: string | null };
+        entity: {
+          name: string;
+          domain: string | null;
+          maintenanceMode: boolean;
+        };
       }>("/settings/domain", {
         method: "PATCH",
         body: JSON.stringify({
           domain: domainValue,
+          maintenanceMode,
           ...(entityId ? { entityId } : {}),
         }),
       });
       setDomainValue(data.entity.domain || "");
+      setMaintenanceMode(Boolean(data.entity.maintenanceMode));
       setDomainEntityName(data.entity.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Domein opslaan mislukt");
@@ -971,6 +984,27 @@ export function GeneralSettingsPage() {
                     onChange={(e) => setDomainValue(e.target.value)}
                     placeholder="bijv. booking.belien.be"
                   />
+                </label>
+                <label className="switch-row">
+                  <span className="switch">
+                    <input
+                      type="checkbox"
+                      checked={maintenanceMode}
+                      onChange={(e) => setMaintenanceMode(e.target.checked)}
+                    />
+                    <span className="switch-slider" />
+                  </span>
+                  <span>
+                    <strong>
+                      {maintenanceMode
+                        ? "Onderhoud / coming soon aan"
+                        : "Onderhoud / coming soon uit"}
+                    </strong>
+                    <span className="muted" style={{ display: "block" }}>
+                      Bezoekers zien een coming soon-pagina i.p.v. de booking
+                      flows.
+                    </span>
+                  </span>
                 </label>
                 <div className="actions" style={{ justifyContent: "flex-start" }}>
                   <button

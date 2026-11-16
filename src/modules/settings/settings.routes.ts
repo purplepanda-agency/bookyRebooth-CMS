@@ -33,6 +33,7 @@ const entitySettingsSelect = {
   headerScripts: true,
   footerScripts: true,
   active: true,
+  maintenanceMode: true,
 } as const;
 
 settingsRouter.get("/domain", async (req, res, next) => {
@@ -74,7 +75,10 @@ settingsRouter.patch("/domain", async (req, res, next) => {
 
     const entity = await prisma.entity.update({
       where: { id: scope.entityId },
-      data: { domain: body.domain ? body.domain : null },
+      data: {
+        domain: body.domain ? body.domain : null,
+        maintenanceMode: body.maintenanceMode,
+      },
       select: entitySettingsSelect,
     });
 

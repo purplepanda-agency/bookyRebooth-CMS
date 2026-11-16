@@ -46,6 +46,7 @@ const FIELD_LABEL: Record<string, string> = {
   role: "rol",
   passwordHash: "wachtwoord",
   active: "status",
+  maintenanceMode: "onderhoudsmodus",
   entities: "entiteiten",
   entiteiten: "entiteiten",
   domain: "domein",

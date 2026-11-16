@@ -67,7 +67,8 @@ model Entity {
   googleClientEmail         String?          @db.VarChar(255)
   googlePrivateKeyEnc       String?          @db.Text
   googleSubject             String?          @db.VarChar(255)
-  active          Boolean    @default(true)
+  active            Boolean  @default(true)
+  maintenanceMode   Boolean  @default(false)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   users           UserEntity[]

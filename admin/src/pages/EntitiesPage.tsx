@@ -8,12 +8,14 @@ type FormState = {
   name: string;
   slug: string;
   active: boolean;
+  maintenanceMode: boolean;
 };
 
 const emptyForm: FormState = {
   name: "",
   slug: "",
   active: true,
+  maintenanceMode: false,
 };
 
 function slugify(value: string) {
@@ -86,6 +88,7 @@ export function EntitiesPage() {
       name: entity.name,
       slug: entity.slug,
       active: entity.active,
+      maintenanceMode: Boolean(entity.maintenanceMode),
     });
     setSlugTouched(true);
     setShowForm(true);
@@ -178,6 +181,11 @@ export function EntitiesPage() {
                     <span className={`badge ${entity.active ? "ok" : "off"}`}>
                       {entity.active ? "Actief" : "Inactief"}
                     </span>
+                    {entity.maintenanceMode ? (
+                      <span className="badge off" style={{ marginLeft: "0.35rem" }}>
+                        Coming soon
+                      </span>
+                    ) : null}
                   </td>
                   <td>{entity._count?.users ?? 0}</td>
                   <td>
@@ -248,15 +256,45 @@ export function EntitiesPage() {
                 />
               </label>
             </div>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={form.active}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, active: e.target.checked }))
-                }
-              />
-              Actief
+            <label className="switch-row">
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={form.active}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, active: e.target.checked }))
+                  }
+                />
+                <span className="switch-slider" />
+              </span>
+              <span>
+                <strong>{form.active ? "Actief" : "Inactief"}</strong>
+              </span>
+            </label>
+            <label className="switch-row">
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={form.maintenanceMode}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      maintenanceMode: e.target.checked,
+                    }))
+                  }
+                />
+                <span className="switch-slider" />
+              </span>
+              <span>
+                <strong>
+                  {form.maintenanceMode
+                    ? "Onderhoud / coming soon aan"
+                    : "Onderhoud / coming soon uit"}
+                </strong>
+                <span className="muted" style={{ display: "block" }}>
+                  Bezoekers zien een coming soon-pagina i.p.v. de booking flows.
+                </span>
+              </span>
             </label>
             <div className="actions">
               <button

@@ -64,9 +64,10 @@ type PublicEntityScope =
         slug: string;
         domain: string | null;
         active: boolean;
+        maintenanceMode: boolean;
       };
     }
-  | { error: string; status: 403 | 404 };
+  | { error: string; status: 403 | 404 | 503 };
 
 async function resolvePublicEntity(
   entitySlug: string,
@@ -80,6 +81,7 @@ async function resolvePublicEntity(
       slug: true,
       domain: true,
       active: true,
+      maintenanceMode: true,
     },
   });
 
@@ -90,6 +92,13 @@ async function resolvePublicEntity(
   const domainError = assertHostAllowed(entity.domain, host);
   if (domainError) {
     return { error: domainError, status: 403 };
+  }
+
+  if (entity.maintenanceMode) {
+    return {
+      error: "Deze booking tool is tijdelijk in onderhoud.",
+      status: 503,
+    };
   }
 
   return { entity };
@@ -263,6 +272,7 @@ publicRouter.get("/:entitySlug/bootstrap", async (req, res, next) => {
         headerScripts: true,
         footerScripts: true,
         active: true,
+        maintenanceMode: true,
       },
     });
 
@@ -281,23 +291,25 @@ publicRouter.get("/:entitySlug/bootstrap", async (req, res, next) => {
       return;
     }
 
-    const flows = await prisma.flow.findMany({
-      where: {
-        entityId: entity.id,
-        active: true,
-      },
-      orderBy: [
-        { sortOrder: "asc" },
-        { createdAt: "asc" },
-        { name: "asc" },
-      ],
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        featuredImage: true,
-      },
-    });
+    const flows = entity.maintenanceMode
+      ? []
+      : await prisma.flow.findMany({
+          where: {
+            entityId: entity.id,
+            active: true,
+          },
+          orderBy: [
+            { sortOrder: "asc" },
+            { createdAt: "asc" },
+            { name: "asc" },
+          ],
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            featuredImage: true,
+          },
+        });
 
     res.json({
       entity: {
@@ -312,6 +324,7 @@ publicRouter.get("/:entitySlug/bootstrap", async (req, res, next) => {
         gtmId: entity.gtmId,
         headerScripts: entity.headerScripts,
         footerScripts: entity.footerScripts,
+        maintenanceMode: entity.maintenanceMode,
       },
       flows,
     });

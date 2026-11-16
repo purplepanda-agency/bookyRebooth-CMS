@@ -28,6 +28,7 @@ export const createEntitySchema = z.object({
   slug: slugSchema,
   domain: domainSchema.optional(),
   active: z.boolean().optional().default(true),
+  maintenanceMode: z.boolean().optional().default(false),
 });
 
 export const updateEntitySchema = z
@@ -36,6 +37,7 @@ export const updateEntitySchema = z
     slug: slugSchema.optional(),
     domain: domainSchema.nullable().optional(),
     active: z.boolean().optional(),
+    maintenanceMode: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "At least one field is required",
