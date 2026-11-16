@@ -1,3 +1,16 @@
 import { PrismaClient } from "@prisma/client";
+import { noteActivityFromQuery } from "./activityCapture.js";
 
-export const prisma = new PrismaClient();
+const basePrisma = new PrismaClient();
+
+export const prisma = basePrisma.$extends({
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }) {
+        const result = await query(args);
+        if (model) noteActivityFromQuery(model, operation, args, result);
+        return result;
+      },
+    },
+  },
+});

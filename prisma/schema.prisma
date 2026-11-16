@@ -226,3 +226,22 @@ model AnalyticsEvent {
   @@index([entityId, createdAt])
   @@index([createdAt])
 }
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  userEmail  String
+  userRole   Role
+  action     String   @db.VarChar(32)
+  summary    String   @db.VarChar(500)
+  detail     String?  @db.VarChar(500)
+  entityId   String?
+  entityName String?  @db.VarChar(255)
+  entityIds  String?  @db.VarChar(1000)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([entityId, createdAt])
+}
+

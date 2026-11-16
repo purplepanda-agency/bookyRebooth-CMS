@@ -1301,3 +1301,37 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.activity-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(12rem, 1fr) minmax(12rem, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.activity-when {
+  white-space: nowrap;
+}
+
+.activity-summary {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.activity-detail {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.activity-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.9rem 1rem 1.1rem;
+}
+
+@media (max-width: 800px) {
+  .activity-filters {
+    grid-template-columns: 1fr;
+  }
+}
+

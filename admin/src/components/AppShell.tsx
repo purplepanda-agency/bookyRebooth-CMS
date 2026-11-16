@@ -36,6 +36,11 @@ export function AppShell() {
           <NavLink to="/" end className={navClass}>
             Overzicht
           </NavLink>
+          {isSuper ? (
+            <NavLink to="/activity" className={navClass}>
+              Activiteit
+            </NavLink>
+          ) : null}
 
           <div className="nav-divider" aria-hidden="true" />
 

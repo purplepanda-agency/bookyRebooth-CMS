@@ -17,6 +17,8 @@ import { settingsRouter } from "./modules/settings/settings.routes.js";
 import { flowsRouter } from "./modules/flows/flows.routes.js";
 import { mediaRouter } from "./modules/media/media.routes.js";
 import { statsRouter } from "./modules/stats/stats.routes.js";
+import { activityRouter } from "./modules/activity/activity.routes.js";
+import { captureActivity } from "./middleware/captureActivity.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { ensureMediaDir, mediaRoot } from "./lib/media.js";
 
@@ -35,6 +37,7 @@ export function createApp() {
   );
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
+  app.use(captureActivity);
 
   app.use("/media", express.static(mediaRoot));
 
@@ -55,6 +58,7 @@ export function createApp() {
   app.use("/api/flows", flowsRouter);
   app.use("/api/media", mediaRouter);
   app.use("/api/stats", statsRouter);
+  app.use("/api/activity", activityRouter);
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });
