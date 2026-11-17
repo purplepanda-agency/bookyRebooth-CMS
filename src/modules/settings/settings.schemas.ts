@@ -93,10 +93,9 @@ export const updateCalendarSettingsSchema = z
     outlookClientId: optionalTrimmed,
     outlookClientSecret: optionalTrimmed,
     clearOutlookClientSecret: z.boolean().optional(),
-    googleClientEmail: optionalTrimmed,
-    googlePrivateKey: optionalTrimmed,
-    clearGooglePrivateKey: z.boolean().optional(),
-    googleSubject: optionalTrimmed,
+    googleOAuthClientId: optionalTrimmed,
+    googleOAuthClientSecret: optionalTrimmed,
+    clearGoogleOAuthClientSecret: z.boolean().optional(),
     entityId: z.string().cuid().optional(),
   })
   .superRefine((value, ctx) => {
@@ -117,11 +116,11 @@ export const updateCalendarSettingsSchema = z
       }
     }
     if (value.provider === "GOOGLE") {
-      if (!value.googleClientEmail) {
+      if (!value.googleOAuthClientId) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Google client e-mail is verplicht",
-          path: ["googleClientEmail"],
+          message: "Google OAuth Client ID is verplicht",
+          path: ["googleOAuthClientId"],
         });
       }
     }

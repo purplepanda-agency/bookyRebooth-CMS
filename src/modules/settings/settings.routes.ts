@@ -231,7 +231,6 @@ settingsRouter.get("/calendar", async (req, res, next) => {
     const entity = await prisma.entity.findUnique({
       where: { id: scope.entityId },
       select: {
-        id: true,
         name: true,
         slug: true,
         ...calendarSelect,
@@ -283,11 +282,11 @@ settingsRouter.patch("/calendar", async (req, res, next) => {
       outlookClientSecretEnc = encryptSecret(body.outlookClientSecret);
     }
 
-    let googlePrivateKeyEnc = existing.googlePrivateKeyEnc;
-    if (body.clearGooglePrivateKey) {
-      googlePrivateKeyEnc = null;
-    } else if (body.googlePrivateKey) {
-      googlePrivateKeyEnc = encryptSecret(body.googlePrivateKey);
+    let googleOAuthClientSecretEnc = existing.googleOAuthClientSecretEnc;
+    if (body.clearGoogleOAuthClientSecret) {
+      googleOAuthClientSecretEnc = null;
+    } else if (body.googleOAuthClientSecret) {
+      googleOAuthClientSecretEnc = encryptSecret(body.googleOAuthClientSecret);
     }
 
     if (body.provider === "OUTLOOK" && !outlookClientSecretEnc) {
@@ -297,9 +296,9 @@ settingsRouter.patch("/calendar", async (req, res, next) => {
       return;
     }
 
-    if (body.provider === "GOOGLE" && !googlePrivateKeyEnc) {
+    if (body.provider === "GOOGLE" && !googleOAuthClientSecretEnc) {
       res.status(400).json({
-        error: "Google private key is verplicht (of behoud de bestaande).",
+        error: "Google client secret is verplicht (of behoud de bestaande).",
       });
       return;
     }
@@ -315,14 +314,16 @@ settingsRouter.patch("/calendar", async (req, res, next) => {
           body.provider === "OUTLOOK" ? body.outlookClientId : null,
         outlookClientSecretEnc:
           body.provider === "OUTLOOK" ? outlookClientSecretEnc : null,
-        googleClientEmail:
-          body.provider === "GOOGLE" ? body.googleClientEmail : null,
-        googlePrivateKeyEnc:
-          body.provider === "GOOGLE" ? googlePrivateKeyEnc : null,
-        googleSubject: body.provider === "GOOGLE" ? body.googleSubject : null,
+        googleOAuthClientId:
+          body.provider === "GOOGLE" ? body.googleOAuthClientId : null,
+        googleOAuthClientSecretEnc:
+          body.provider === "GOOGLE" ? googleOAuthClientSecretEnc : null,
+        // Legacy service-account fields unused for per-seller OAuth.
+        googleClientEmail: null,
+        googlePrivateKeyEnc: null,
+        googleSubject: null,
       },
       select: {
-        id: true,
         name: true,
         slug: true,
         ...calendarSelect,

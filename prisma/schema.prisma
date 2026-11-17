@@ -64,9 +64,11 @@ model Entity {
   outlookTenantId           String?          @db.VarChar(64)
   outlookClientId           String?          @db.VarChar(64)
   outlookClientSecretEnc    String?          @db.Text
-  googleClientEmail         String?          @db.VarChar(255)
-  googlePrivateKeyEnc       String?          @db.Text
-  googleSubject             String?          @db.VarChar(255)
+  googleClientEmail            String?          @db.VarChar(255)
+  googlePrivateKeyEnc          String?          @db.Text
+  googleSubject                String?          @db.VarChar(255)
+  googleOAuthClientId          String?          @db.VarChar(255)
+  googleOAuthClientSecretEnc   String?          @db.Text
   active            Boolean  @default(true)
   maintenanceMode   Boolean  @default(false)
   createdAt  DateTime   @default(now())
@@ -161,19 +163,22 @@ model Category {
 }
 
 model Seller {
-  id                String           @id @default(cuid())
-  name              String
-  email             String
-  imageUrl          String           @db.Text
-  active            Boolean          @default(true)
-  entityId          String
-  entity            Entity           @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  primaryLocationId String?
-  primaryLocation   Location?        @relation("SellerPrimaryLocation", fields: [primaryLocationId], references: [id], onDelete: SetNull)
-  schedules         SellerSchedule[]
-  categories        Category[]       @relation("SellerToCategory")
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                       String           @id @default(cuid())
+  name                     String
+  email                    String
+  imageUrl                 String           @db.Text
+  active                   Boolean          @default(true)
+  entityId                 String
+  entity                   Entity           @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  primaryLocationId        String?
+  primaryLocation          Location?        @relation("SellerPrimaryLocation", fields: [primaryLocationId], references: [id], onDelete: SetNull)
+  googleRefreshTokenEnc    String?          @db.Text
+  googleConnectedEmail     String?          @db.VarChar(255)
+  googleConnectedAt        DateTime?
+  schedules                SellerSchedule[]
+  categories               Category[]       @relation("SellerToCategory")
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
 
   @@index([entityId])
   @@index([primaryLocationId])

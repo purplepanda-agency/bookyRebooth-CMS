@@ -1,4 +1,5 @@
 import type { CalendarProvider, Entity } from "@prisma/client";
+import { env } from "../../config/env.js";
 import { prisma } from "../prisma.js";
 import { decryptSecret } from "../secretCrypto.js";
 import type {
@@ -9,34 +10,46 @@ import type {
 } from "./types.js";
 
 const calendarSelect = {
+  id: true,
   calendarProvider: true,
   calendarTimezone: true,
   outlookTenantId: true,
   outlookClientId: true,
   outlookClientSecretEnc: true,
-  googleClientEmail: true,
-  googlePrivateKeyEnc: true,
-  googleSubject: true,
+  googleOAuthClientId: true,
+  googleOAuthClientSecretEnc: true,
 } as const;
 
 type EntityCalendarRow = Pick<
   Entity,
+  | "id"
   | "calendarProvider"
   | "calendarTimezone"
   | "outlookTenantId"
   | "outlookClientId"
   | "outlookClientSecretEnc"
-  | "googleClientEmail"
-  | "googlePrivateKeyEnc"
-  | "googleSubject"
+  | "googleOAuthClientId"
+  | "googleOAuthClientSecretEnc"
 >;
+
+export function getGoogleRedirectUri() {
+  if (env.GOOGLE_OAUTH_REDIRECT_URI?.trim()) {
+    return env.GOOGLE_OAUTH_REDIRECT_URI.trim();
+  }
+  const base = env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  if (!base) return null;
+  return `${base}/api/google-oauth/callback`;
+}
 
 function incompleteMessage(provider: CalendarProvider) {
   if (provider === "OUTLOOK") {
     return "Outlook is gekozen, maar tenant, client ID of secret ontbreekt.";
   }
   if (provider === "GOOGLE") {
-    return "Google is gekozen, maar service-account e-mail of private key ontbreekt.";
+    if (!getGoogleRedirectUri()) {
+      return "Google is gekozen, maar GOOGLE_OAUTH_REDIRECT_URI / PUBLIC_BASE_URL ontbreekt op de server.";
+    }
+    return "Google is gekozen, maar OAuth Client ID of Client secret ontbreekt.";
   }
   return "Geen agenda-provider geconfigureerd voor deze entiteit.";
 }
@@ -45,7 +58,8 @@ export function toPublicCalendarConfig(
   entity: EntityCalendarRow,
 ): CalendarConfigPublic {
   const outlookSecretSet = Boolean(entity.outlookClientSecretEnc);
-  const googleKeySet = Boolean(entity.googlePrivateKeyEnc);
+  const googleSecretSet = Boolean(entity.googleOAuthClientSecretEnc);
+  const redirectUri = getGoogleRedirectUri();
   const outlookComplete =
     entity.calendarProvider === "OUTLOOK" &&
     Boolean(entity.outlookTenantId?.trim()) &&
@@ -53,8 +67,9 @@ export function toPublicCalendarConfig(
     outlookSecretSet;
   const googleComplete =
     entity.calendarProvider === "GOOGLE" &&
-    Boolean(entity.googleClientEmail?.trim()) &&
-    googleKeySet;
+    Boolean(entity.googleOAuthClientId?.trim()) &&
+    googleSecretSet &&
+    Boolean(redirectUri);
 
   const configured = outlookComplete || googleComplete;
 
@@ -64,11 +79,15 @@ export function toPublicCalendarConfig(
     outlookTenantId: entity.outlookTenantId,
     outlookClientId: entity.outlookClientId,
     outlookClientSecretSet: outlookSecretSet,
-    googleClientEmail: entity.googleClientEmail,
-    googlePrivateKeySet: googleKeySet,
-    googleSubject: entity.googleSubject,
+    googleOAuthClientId: entity.googleOAuthClientId,
+    googleOAuthClientSecretSet: googleSecretSet,
+    googleRedirectUri: redirectUri,
     configured,
-    message: configured ? null : incompleteMessage(entity.calendarProvider),
+    message: configured
+      ? entity.calendarProvider === "GOOGLE"
+        ? "Authenticatie gebeurt per verkoper onder Verkopersconnecties."
+        : null
+      : incompleteMessage(entity.calendarProvider),
   };
 }
 
@@ -106,26 +125,26 @@ export function decryptCalendarConfig(
   }
 
   if (entity.calendarProvider === "GOOGLE") {
-    const clientEmail = entity.googleClientEmail?.trim();
-    const keyEnc = entity.googlePrivateKeyEnc;
-    if (!clientEmail || !keyEnc) {
+    const clientId = entity.googleOAuthClientId?.trim();
+    const secretEnc = entity.googleOAuthClientSecretEnc;
+    if (!clientId || !secretEnc || !getGoogleRedirectUri()) {
       return { ok: false, error: incompleteMessage("GOOGLE") };
     }
-    let privateKey: string;
+    let clientSecret: string;
     try {
-      privateKey = decryptSecret(keyEnc);
+      clientSecret = decryptSecret(secretEnc);
     } catch {
       return {
         ok: false,
-        error: "Google private key kon niet ontcijferd worden.",
+        error: "Google client secret kon niet ontcijferd worden.",
       };
     }
     const config: GoogleCalendarConfig = {
       provider: "GOOGLE",
       timeZone,
-      clientEmail,
-      privateKey,
-      subject: entity.googleSubject?.trim() || null,
+      entityId: entity.id,
+      clientId,
+      clientSecret,
     };
     return { ok: true, config };
   }

@@ -18,9 +18,9 @@ type CalendarSettings = {
   outlookTenantId: string | null;
   outlookClientId: string | null;
   outlookClientSecretSet: boolean;
-  googleClientEmail: string | null;
-  googlePrivateKeySet: boolean;
-  googleSubject: string | null;
+  googleOAuthClientId: string | null;
+  googleOAuthClientSecretSet: boolean;
+  googleRedirectUri: string | null;
   configured: boolean;
   message: string | null;
 };
@@ -33,6 +33,8 @@ type SellerConnection = {
   visible: boolean;
   status: string;
   detail?: string;
+  googleConnected?: boolean;
+  googleConnectedEmail?: string | null;
   entity?: { id: string; name: string; slug: string } | null;
 };
 
@@ -116,16 +118,29 @@ export function GeneralSettingsPage() {
   const [outlookClientSecretSet, setOutlookClientSecretSet] = useState(false);
   const [clearOutlookClientSecret, setClearOutlookClientSecret] =
     useState(false);
-  const [googleClientEmail, setGoogleClientEmail] = useState("");
-  const [googlePrivateKey, setGooglePrivateKey] = useState("");
-  const [googlePrivateKeySet, setGooglePrivateKeySet] = useState(false);
-  const [clearGooglePrivateKey, setClearGooglePrivateKey] = useState(false);
-  const [googleSubject, setGoogleSubject] = useState("");
+  const [googleOAuthClientId, setGoogleOAuthClientId] = useState("");
+  const [googleOAuthClientSecret, setGoogleOAuthClientSecret] = useState("");
+  const [googleOAuthClientSecretSet, setGoogleOAuthClientSecretSet] =
+    useState(false);
+  const [clearGoogleOAuthClientSecret, setClearGoogleOAuthClientSecret] =
+    useState(false);
+  const [googleRedirectUri, setGoogleRedirectUri] = useState<string | null>(
+    null,
+  );
   const [calendarConfigured, setCalendarConfigured] = useState(false);
   const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
   const [integrationsEntityName, setIntegrationsEntityName] = useState("");
   const [loadingIntegrations, setLoadingIntegrations] = useState(false);
   const [savingIntegrations, setSavingIntegrations] = useState(false);
+  const [connectionsProvider, setConnectionsProvider] =
+    useState<CalendarProvider | null>(null);
+  const [oauthBusySellerId, setOauthBusySellerId] = useState<string | null>(
+    null,
+  );
+  const [oauthNotice, setOauthNotice] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const mediaEntityKey = selectedEntity?.slug || "global";
 
@@ -137,14 +152,39 @@ export function GeneralSettingsPage() {
     setOutlookClientSecret("");
     setOutlookClientSecretSet(calendar.outlookClientSecretSet);
     setClearOutlookClientSecret(false);
-    setGoogleClientEmail(calendar.googleClientEmail || "");
-    setGooglePrivateKey("");
-    setGooglePrivateKeySet(calendar.googlePrivateKeySet);
-    setClearGooglePrivateKey(false);
-    setGoogleSubject(calendar.googleSubject || "");
+    setGoogleOAuthClientId(calendar.googleOAuthClientId || "");
+    setGoogleOAuthClientSecret("");
+    setGoogleOAuthClientSecretSet(calendar.googleOAuthClientSecretSet);
+    setClearGoogleOAuthClientSecret(false);
+    setGoogleRedirectUri(calendar.googleRedirectUri);
     setCalendarConfigured(calendar.configured);
     setCalendarMessage(calendar.message);
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "sellers" || tab === "integrations" || tab === "content" || tab === "domain" || tab === "tracking") {
+      setActiveTab(tab);
+    }
+    const oauth = params.get("googleOauth");
+    const message = params.get("message");
+    if (oauth === "success" || oauth === "error") {
+      setOauthNotice({
+        type: oauth,
+        message: message || (oauth === "success" ? "Google gekoppeld" : "Koppelen mislukt"),
+      });
+      setActiveTab("sellers");
+      params.delete("googleOauth");
+      params.delete("message");
+      const next = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${next ? `?${next}` : ""}`,
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTab !== "sellers") return;
@@ -163,11 +203,13 @@ export function GeneralSettingsPage() {
             : "";
         const data = await api<{
           configured: boolean;
+          provider?: CalendarProvider | null;
           message?: string;
           connections: SellerConnection[];
         }>(`/seller-connections${query}`);
         if (cancelled) return;
         setConfigured(data.configured);
+        setConnectionsProvider(data.provider ?? null);
         setConfigMessage(data.message ?? null);
         setConnections(data.connections);
       } catch (err) {
@@ -531,10 +573,9 @@ export function GeneralSettingsPage() {
           outlookClientId: outlookClientId.trim() || null,
           outlookClientSecret: outlookClientSecret.trim() || null,
           clearOutlookClientSecret,
-          googleClientEmail: googleClientEmail.trim() || null,
-          googlePrivateKey: googlePrivateKey.trim() || null,
-          clearGooglePrivateKey,
-          googleSubject: googleSubject.trim() || null,
+          googleOAuthClientId: googleOAuthClientId.trim() || null,
+          googleOAuthClientSecret: googleOAuthClientSecret.trim() || null,
+          clearGoogleOAuthClientSecret,
           entityId,
         }),
       });
@@ -546,6 +587,70 @@ export function GeneralSettingsPage() {
       );
     } finally {
       setSavingIntegrations(false);
+    }
+  }
+
+  async function connectGoogle(sellerId: string) {
+    if (!entityId) {
+      setError("Kies een entiteit");
+      return;
+    }
+    setOauthBusySellerId(sellerId);
+    setError(null);
+    try {
+      const data = await api<{ url: string }>("/google-oauth/start", {
+        method: "POST",
+        body: JSON.stringify({
+          sellerId,
+          entityId,
+          returnOrigin: window.location.origin,
+        }),
+      });
+      window.location.href = data.url;
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Google-koppeling starten mislukt",
+      );
+      setOauthBusySellerId(null);
+    }
+  }
+
+  async function disconnectGoogle(sellerId: string) {
+    if (!entityId) {
+      setError("Kies een entiteit");
+      return;
+    }
+    setOauthBusySellerId(sellerId);
+    setError(null);
+    try {
+      await api("/google-oauth/disconnect", {
+        method: "POST",
+        body: JSON.stringify({ sellerId, entityId }),
+      });
+      setConnections((prev) =>
+        prev.map((row) =>
+          row.sellerId === sellerId
+            ? {
+                ...row,
+                googleConnected: false,
+                googleConnectedEmail: null,
+                visible: false,
+                status: "Agenda niet bereikbaar",
+                detail: "Google-agenda niet gekoppeld",
+              }
+            : row,
+        ),
+      );
+      setOauthNotice({
+        type: "success",
+        message: "Google-koppeling verwijderd",
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Ontkoppelen mislukt",
+      );
+    } finally {
+      setOauthBusySellerId(null);
     }
   }
 
@@ -718,63 +823,68 @@ export function GeneralSettingsPage() {
                 {calendarProvider === "GOOGLE" ? (
                   <>
                     <p className="muted">
-                      Opslaan kan al. De Google Calendar-koppeling zelf volgt in
-                      een volgende stap.
+                      Authenticatie gebeurt per verkoper. Voeg de verkopers toe
+                      bij &apos;Verkopers&apos; en onder het tabblad
+                      &apos;Verkopersconnecties&apos; bij de algemene
+                      instellingen kan je de connectie per verkoper maken.
                     </p>
                     <label>
-                      Service account e-mail
+                      OAuth Client ID
                       <input
-                        value={googleClientEmail}
+                        value={googleOAuthClientId}
                         onChange={(event) =>
-                          setGoogleClientEmail(event.target.value)
+                          setGoogleOAuthClientId(event.target.value)
                         }
                         autoComplete="off"
+                        placeholder="….apps.googleusercontent.com"
                       />
                     </label>
                     <label>
-                      Private key
-                      <textarea
-                        value={googlePrivateKey}
+                      OAuth Client secret
+                      <input
+                        type="password"
+                        value={googleOAuthClientSecret}
                         onChange={(event) => {
-                          setGooglePrivateKey(event.target.value);
+                          setGoogleOAuthClientSecret(event.target.value);
                           if (event.target.value) {
-                            setClearGooglePrivateKey(false);
+                            setClearGoogleOAuthClientSecret(false);
                           }
                         }}
                         placeholder={
-                          googlePrivateKeySet
-                            ? "Laat leeg om de bestaande key te behouden"
-                            : "Plak de private key (PEM)"
+                          googleOAuthClientSecretSet
+                            ? "Laat leeg om het bestaande secret te behouden"
+                            : ""
                         }
-                        rows={6}
+                        autoComplete="new-password"
                       />
                     </label>
-                    {googlePrivateKeySet ? (
+                    {googleOAuthClientSecretSet ? (
                       <label className="checkbox-row">
                         <input
                           type="checkbox"
-                          checked={clearGooglePrivateKey}
+                          checked={clearGoogleOAuthClientSecret}
                           onChange={(event) => {
-                            setClearGooglePrivateKey(event.target.checked);
+                            setClearGoogleOAuthClientSecret(
+                              event.target.checked,
+                            );
                             if (event.target.checked) {
-                              setGooglePrivateKey("");
+                              setGoogleOAuthClientSecret("");
                             }
                           }}
                         />
-                        Bestaande private key wissen
+                        Bestaand client secret wissen
                       </label>
                     ) : null}
-                    <label>
-                      Subject (optioneel, domain-wide delegation)
-                      <input
-                        value={googleSubject}
-                        onChange={(event) =>
-                          setGoogleSubject(event.target.value)
-                        }
-                        placeholder="user@domein.be"
-                        autoComplete="off"
-                      />
-                    </label>
+                    {googleRedirectUri ? (
+                      <p className="muted" style={{ margin: 0 }}>
+                        Zet in Google Cloud bij Authorized redirect URIs exact:{" "}
+                        <code>{googleRedirectUri}</code>
+                      </p>
+                    ) : (
+                      <p className="error" style={{ margin: 0 }}>
+                        Server mist GOOGLE_OAUTH_REDIRECT_URI of PUBLIC_BASE_URL.
+                      </p>
+                    )}
                   </>
                 ) : null}
 
@@ -796,6 +906,11 @@ export function GeneralSettingsPage() {
       {activeTab === "sellers" ? (
         <div className="stack">
           {error ? <p className="error">{error}</p> : null}
+          {oauthNotice ? (
+            <p className={oauthNotice.type === "success" ? "muted" : "error"}>
+              {oauthNotice.message}
+            </p>
+          ) : null}
 
           {!configured && configMessage ? (
             <div className="panel">
@@ -809,8 +924,9 @@ export function GeneralSettingsPage() {
             <div className="panel-body">
               <h2 style={{ marginBottom: "0.75rem" }}>Verkopersagenda’s</h2>
               <p className="muted" style={{ marginBottom: "1rem" }}>
-                Status op basis van het e-mailadres van de verkoper en de
-                agenda-integratie van deze entiteit.
+                {connectionsProvider === "GOOGLE"
+                  ? "Koppel per verkoper een Google-account. De primary agenda van dat account wordt gebruikt voor beschikbaarheid en boekingen."
+                  : "Status op basis van het e-mailadres van de verkoper en de agenda-integratie van deze entiteit."}
               </p>
 
               {loadingConnections ? (
@@ -824,6 +940,9 @@ export function GeneralSettingsPage() {
                       <th>Verkoper</th>
                       <th>E-mail</th>
                       <th>Status</th>
+                      {connectionsProvider === "GOOGLE" ? (
+                        <th style={{ width: 180 }}>Actie</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -851,7 +970,14 @@ export function GeneralSettingsPage() {
                             <span>{connection.name}</span>
                           </div>
                         </td>
-                        <td>{connection.email}</td>
+                        <td>
+                          {connection.email}
+                          {connection.googleConnectedEmail ? (
+                            <div className="muted" style={{ fontSize: "0.82rem" }}>
+                              Google: {connection.googleConnectedEmail}
+                            </div>
+                          ) : null}
+                        </td>
                         <td>
                           <span
                             className={
@@ -863,7 +989,56 @@ export function GeneralSettingsPage() {
                           >
                             {connection.status}
                           </span>
+                          {connection.detail && !connection.visible ? (
+                            <div
+                              className="muted"
+                              style={{
+                                fontSize: "0.78rem",
+                                marginTop: "0.35rem",
+                                maxWidth: 320,
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {connection.detail}
+                            </div>
+                          ) : null}
                         </td>
+                        {connectionsProvider === "GOOGLE" ? (
+                          <td>
+                            {connection.googleConnected ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-small"
+                                disabled={
+                                  oauthBusySellerId === connection.sellerId
+                                }
+                                onClick={() =>
+                                  void disconnectGoogle(connection.sellerId)
+                                }
+                              >
+                                {oauthBusySellerId === connection.sellerId
+                                  ? "Bezig…"
+                                  : "Ontkoppel"}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-small"
+                                disabled={
+                                  !configured ||
+                                  oauthBusySellerId === connection.sellerId
+                                }
+                                onClick={() =>
+                                  void connectGoogle(connection.sellerId)
+                                }
+                              >
+                                {oauthBusySellerId === connection.sellerId
+                                  ? "Bezig…"
+                                  : "Connect Google"}
+                              </button>
+                            )}
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>

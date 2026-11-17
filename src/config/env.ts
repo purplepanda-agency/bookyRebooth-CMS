@@ -35,8 +35,11 @@ const envSchema = z.object({
   SENDGRID_BOOKING_TEMPLATE_ID: optionalString,
   SENDGRID_SELLER_BOOKING_TEMPLATE_ID: optionalString,
   PUBLIC_BASE_URL: optionalString,
+  ADMIN_PUBLIC_URL: optionalString,
   RECAPTCHA_SECRET_KEY: optionalString,
   RECAPTCHA_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.5),
+  // Shared Booky callback URL that each customer adds to their Google OAuth client.
+  GOOGLE_OAUTH_REDIRECT_URI: optionalString,
 });
 
 const parsed = envSchema.safeParse(process.env);

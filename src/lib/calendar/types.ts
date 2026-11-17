@@ -9,9 +9,9 @@ export type OutlookCalendarConfig = {
 export type GoogleCalendarConfig = {
   provider: "GOOGLE";
   timeZone: string;
-  clientEmail: string;
-  privateKey: string;
-  subject: string | null;
+  entityId: string;
+  clientId: string;
+  clientSecret: string;
 };
 
 export type CalendarConfig = OutlookCalendarConfig | GoogleCalendarConfig;
@@ -22,9 +22,9 @@ export type CalendarConfigPublic = {
   outlookTenantId: string | null;
   outlookClientId: string | null;
   outlookClientSecretSet: boolean;
-  googleClientEmail: string | null;
-  googlePrivateKeySet: boolean;
-  googleSubject: string | null;
+  googleOAuthClientId: string | null;
+  googleOAuthClientSecretSet: boolean;
+  googleRedirectUri: string | null;
   configured: boolean;
   message: string | null;
 };

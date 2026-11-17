@@ -67,6 +67,8 @@ const FIELD_LABEL: Record<string, string> = {
   googleClientEmail: "Google-client e-mail",
   googlePrivateKeyEnc: "Google-private key",
   googleSubject: "Google-subject",
+  googleOAuthClientId: "Google OAuth Client ID",
+  googleOAuthClientSecretEnc: "Google OAuth Client secret",
   imageUrl: "afbeelding",
   photoUrl: "foto",
   featuredImage: "uitgelichte afbeelding",

@@ -33,6 +33,9 @@ async function loadSellersForScope(entityId?: string) {
       imageUrl: true,
       active: true,
       entityId: true,
+      googleConnectedEmail: true,
+      googleRefreshTokenEnc: true,
+      googleConnectedAt: true,
       entity: { select: { id: true, name: true, slug: true } },
     },
   });
@@ -56,9 +59,14 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
     const calendarConfig = await getEntityCalendarConfig(filter.entityId);
     const sellers = await loadSellersForScope(filter.entityId);
 
+    const provider = calendarConfig.ok
+      ? calendarConfig.config.provider
+      : null;
+
     if (!calendarConfig.ok) {
       res.json({
         configured: false,
+        provider,
         message: calendarConfig.error,
         connections: sellers.map((seller) => ({
           sellerId: seller.id,
@@ -69,6 +77,8 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
           visible: false,
           status: "Agenda niet bereikbaar",
           detail: calendarConfig.error,
+          googleConnected: Boolean(seller.googleRefreshTokenEnc),
+          googleConnectedEmail: seller.googleConnectedEmail,
         })),
       });
       return;
@@ -84,6 +94,7 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
 
     res.json({
       configured: true,
+      provider,
       connections: sellers.map((seller) => {
         const match = byEmail.get(seller.email.toLowerCase());
         return {
@@ -95,6 +106,8 @@ sellerConnectionsRouter.get("/", async (req, res, next) => {
           visible: match?.visible ?? false,
           status: match?.status ?? "Agenda niet bereikbaar",
           detail: match?.detail,
+          googleConnected: Boolean(seller.googleRefreshTokenEnc),
+          googleConnectedEmail: seller.googleConnectedEmail,
         };
       }),
     });

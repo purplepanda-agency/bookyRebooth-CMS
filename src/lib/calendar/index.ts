@@ -10,14 +10,14 @@ import {
   type HourlyAvailability,
   type HourlySlot,
 } from "../azureGraph.js";
+import {
+  checkAvailabilityAt as googleCheckAvailabilityAt,
+  checkCalendarVisibility as googleCheckCalendarVisibility,
+  checkHourlyAvailability as googleCheckHourlyAvailability,
+  createCalendarEvent as googleCreateCalendarEvent,
+} from "../googleCalendar.js";
 import { resolveCalendarConfig } from "./resolve.js";
 import type { CalendarConfig } from "./types.js";
-
-function googleNotReady(): never {
-  throw new Error(
-    "Google Calendar is nog niet actief. Kies Outlook of wacht op de Google-implementatie.",
-  );
-}
 
 export async function getEntityCalendarConfig(entityId: string) {
   return resolveCalendarConfig(entityId);
@@ -31,7 +31,9 @@ export async function checkCalendarVisibility(
   config: CalendarConfig,
   emails: string[],
 ): Promise<CalendarReachability[]> {
-  if (config.provider === "GOOGLE") googleNotReady();
+  if (config.provider === "GOOGLE") {
+    return googleCheckCalendarVisibility(config, emails);
+  }
   return outlookCheckCalendarVisibility(config, emails);
 }
 
@@ -42,7 +44,15 @@ export async function checkAvailabilityAt(
   time: string,
   durationMinutes = 30,
 ): Promise<AvailabilityResult[]> {
-  if (config.provider === "GOOGLE") googleNotReady();
+  if (config.provider === "GOOGLE") {
+    return googleCheckAvailabilityAt(
+      config,
+      emails,
+      date,
+      time,
+      durationMinutes,
+    );
+  }
   return outlookCheckAvailabilityAt(
     config,
     emails,
@@ -58,7 +68,9 @@ export async function checkHourlyAvailability(
   date: string,
   slots: HourlySlot[],
 ): Promise<HourlyAvailability[]> {
-  if (config.provider === "GOOGLE") googleNotReady();
+  if (config.provider === "GOOGLE") {
+    return googleCheckHourlyAvailability(config, emails, date, slots);
+  }
   return outlookCheckHourlyAvailability(config, emails, date, slots);
 }
 
@@ -66,7 +78,9 @@ export async function createCalendarEvent(
   config: CalendarConfig,
   input: CreateCalendarEventInput,
 ): Promise<CreateCalendarEventResult> {
-  if (config.provider === "GOOGLE") googleNotReady();
+  if (config.provider === "GOOGLE") {
+    return googleCreateCalendarEvent(config, input);
+  }
   return outlookCreateCalendarEvent(config, input);
 }
 
