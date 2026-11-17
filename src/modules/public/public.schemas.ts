@@ -8,9 +8,19 @@ const timeSchema = z
   .string()
   .regex(/^\d{2}:\d{2}$/, "Tijd moet HH:MM zijn");
 
+const optionalSlug = z
+  .string()
+  .max(120)
+  .optional()
+  .nullable()
+  .transform((value) => {
+    const trimmed = value?.trim() || "";
+    return trimmed || null;
+  });
+
 export const publicAvailabilitySlotsSchema = z.object({
-  location: z.string().min(1).max(120),
-  category: z.string().min(1).max(120),
+  location: optionalSlug,
+  category: optionalSlug,
   date: dateSchema,
   dayStartHour: z.number().int().min(0).max(23).optional().default(10),
 });
@@ -21,8 +31,8 @@ export const publicTrackEventSchema = z.object({
 });
 
 export const publicCreateBookingSchema = z.object({
-  location: z.string().min(1).max(120),
-  category: z.string().min(1).max(120),
+  location: optionalSlug,
+  category: optionalSlug,
   date: dateSchema,
   start: timeSchema,
   end: timeSchema,

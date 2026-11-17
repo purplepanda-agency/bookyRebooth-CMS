@@ -6,11 +6,21 @@ const permalinkSchema = z
   .max(120)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Permalink must be lowercase kebab-case");
 
+/** Leeg toegestaan; ingevuld moet een geldige URL zijn. */
+const optionalGoogleMapsUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine(
+    (value) => value.length === 0 || z.string().url().safeParse(value).success,
+    { message: "Ongeldige Google Maps-link" },
+  );
+
 export const createLocationSchema = z.object({
   name: z.string().min(1).max(120),
   imageUrl: z.string().min(1).nullable().optional(),
   address: z.string().min(1).max(255),
-  googleMapsUrl: z.string().url(),
+  googleMapsUrl: optionalGoogleMapsUrl.default(""),
   phone: z.string().min(1).max(50),
   email: z.string().email(),
   permalink: permalinkSchema,
@@ -22,7 +32,7 @@ export const updateLocationSchema = z
     name: z.string().min(1).max(120).optional(),
     imageUrl: z.string().min(1).nullable().optional(),
     address: z.string().min(1).max(255).optional(),
-    googleMapsUrl: z.string().url().optional(),
+    googleMapsUrl: optionalGoogleMapsUrl.optional(),
     phone: z.string().min(1).max(50).optional(),
     email: z.string().email().optional(),
     permalink: permalinkSchema.optional(),

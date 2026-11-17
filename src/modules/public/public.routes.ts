@@ -690,8 +690,8 @@ publicRouter.post("/:entitySlug/bookings", async (req, res, next) => {
       type: "FORM_SUBMIT_SUCCESS",
       entityId: scope.entity.id,
       sellerId: result.data.seller.sellerId,
-      locationId: result.data.location.id,
-      categoryId: result.data.category.id,
+      locationId: result.data.location?.id ?? null,
+      categoryId: result.data.category?.id ?? null,
     });
 
     res.status(201).json({

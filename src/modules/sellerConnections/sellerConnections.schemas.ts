@@ -28,10 +28,20 @@ export const availabilityCheckSchema = z.object({
   durationMinutes: z.number().int().min(5).max(240).optional().default(30),
 });
 
+const optionalSlug = z
+  .string()
+  .max(120)
+  .optional()
+  .nullable()
+  .transform((value) => {
+    const trimmed = value?.trim() || "";
+    return trimmed || null;
+  });
+
 export const availabilitySlotsSchema = z.object({
   entityId: z.string().cuid().optional(),
-  location: z.string().min(1).max(120),
-  category: z.string().min(1).max(120),
+  location: optionalSlug,
+  category: optionalSlug,
   date: dateSchema,
   dayStartHour: z.number().int().min(0).max(23).optional().default(10),
 });

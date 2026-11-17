@@ -31,8 +31,8 @@ import { getAvailabilitySlots } from "../availability/availability.service.js";
 export type CreateBookingInput = {
   entityId: string;
   entityName: string;
-  location: string;
-  category: string;
+  location?: string | null;
+  category?: string | null;
   date: string;
   start: string;
   end: string;
@@ -236,12 +236,12 @@ export type CreateBookingResult = {
     name: string;
     permalink: string;
     address: string;
-  };
+  } | null;
   category: {
     id: string;
     name: string;
     slug: string;
-  };
+  } | null;
   date: string;
   start: string;
   end: string;
@@ -341,14 +341,25 @@ export async function createBooking(
   const customerName =
     `${input.customer.firstName.trim()} ${input.customer.lastName.trim()}`.trim();
   const location = availability.data.location;
-  const subject = `Afspraak met ${customerName} en ${chosen.name} @ ${location.name}.`;
+  const category = availability.data.category;
+  const locationLabel = location?.name || input.entityName || "afspraak";
+  const subject = `Afspraak met ${customerName} en ${chosen.name} @ ${locationLabel}.`;
 
   const details: string[] = [
     `<p><strong>${escapeHtml(subject)}</strong></p>`,
-    `<p>Locatie: ${escapeHtml(location.name)}<br/>${escapeHtml(location.address)}</p>`,
+  ];
+  if (location) {
+    details.push(
+      `<p>Locatie: ${escapeHtml(location.name)}<br/>${escapeHtml(location.address)}</p>`,
+    );
+  }
+  if (category) {
+    details.push(`<p>Categorie: ${escapeHtml(category.name)}</p>`);
+  }
+  details.push(
     `<p>Tijd: ${escapeHtml(input.date)} ${escapeHtml(input.start)} – ${escapeHtml(input.end)}</p>`,
     `<p>Klant: ${escapeHtml(customerName)}<br/>Tel: ${escapeHtml(input.customer.phone)}<br/>E-mail: ${escapeHtml(input.customer.email)}</p>`,
-  ];
+  );
   if (input.customer.address?.trim()) {
     details.push(`<p>Adres klant: ${escapeHtml(input.customer.address.trim())}</p>`);
   }
@@ -374,8 +385,8 @@ export async function createBooking(
       date: input.date,
       start: input.start,
       end: input.end,
-      locationName: location.name,
-      locationAddress: location.address,
+      locationName: location?.name || locationLabel,
+      locationAddress: location?.address || null,
       attendees: [
         {
           email: input.customer.email,
@@ -393,12 +404,17 @@ export async function createBooking(
     });
     const publicBaseUrl = resolvePublicBaseUrl(input.publicBaseUrl);
     const entityLogo = absoluteMediaUrl(entity?.logoUrl, publicBaseUrl);
-    const locationImage = absoluteMediaUrl(location.imageUrl, publicBaseUrl);
+    const locationImage = absoluteMediaUrl(
+      location?.imageUrl ?? null,
+      publicBaseUrl,
+    );
     const appointmentLabel = formatAppointmentTime(
       input.date,
       input.start,
       input.end,
     );
+    const locationId = location?.id ?? null;
+    const categoryId = category?.id ?? null;
 
     if (isSendGridConfigured()) {
       try {
@@ -406,8 +422,8 @@ export async function createBooking(
           toEmail: input.customer.email,
           toName: customerName,
           data: buildBookingMailData({
-            locationName: location.name,
-            locationAddress: location.address,
+            locationName: location?.name || locationLabel,
+            locationAddress: location?.address || "",
             time: appointmentLabel,
             employeeName: chosen.name,
             emailExtraTxt: entity?.emailExtraTxt || "",
@@ -425,8 +441,8 @@ export async function createBooking(
           type: "EMAIL_ERROR",
           entityId: input.entityId,
           sellerId: chosen.sellerId,
-          locationId: location.id,
-          categoryId: availability.data.category.id,
+          locationId,
+          categoryId,
           message: mailError,
         });
       }
@@ -440,8 +456,8 @@ export async function createBooking(
         type: "EMAIL_ERROR",
         entityId: input.entityId,
         sellerId: chosen.sellerId,
-        locationId: location.id,
-        categoryId: availability.data.category.id,
+        locationId,
+        categoryId,
         message: mailError,
       });
     }
@@ -456,7 +472,7 @@ export async function createBooking(
             locationImage,
             clientName: customerName,
             date: appointmentLabel,
-            location: location.name,
+            location: location?.name || locationLabel,
             telefoonNummer: input.customer.phone.trim(),
             emailAdres: input.customer.email.trim(),
             address: input.customer.address?.trim() || "",
@@ -476,8 +492,8 @@ export async function createBooking(
           type: "EMAIL_ERROR",
           entityId: input.entityId,
           sellerId: chosen.sellerId,
-          locationId: location.id,
-          categoryId: availability.data.category.id,
+          locationId,
+          categoryId,
           message: `Verkoper-mail: ${sellerMailError}`,
         });
       }
@@ -492,8 +508,8 @@ export async function createBooking(
         type: "EMAIL_ERROR",
         entityId: input.entityId,
         sellerId: chosen.sellerId,
-        locationId: location.id,
-        categoryId: availability.data.category.id,
+        locationId,
+        categoryId,
         message: sellerMissing,
       });
     }
@@ -516,7 +532,7 @@ export async function createBooking(
     const resultStepContext = buildResultStepContext(input.stepResults);
 
     for (const webhookConfig of webhookBundle.webhooks) {
-      const categorySlug = availability.data.category.slug;
+      const categorySlug = category?.slug || "";
       const payload = renderWebhookPayload(webhookConfig.webhookPayload, {
         webhookName: webhookConfig.webhookName,
         entityName: input.entityName,
@@ -533,14 +549,14 @@ export async function createBooking(
           name: chosen.name,
         },
         location: {
-          id: location.id,
-          name: location.name,
-          permalink: location.permalink,
-          address: location.address,
+          id: location?.id || "",
+          name: location?.name || "",
+          permalink: location?.permalink || "",
+          address: location?.address || "",
         },
         category: {
-          id: availability.data.category.id,
-          name: availability.data.category.name,
+          id: category?.id || "",
+          name: category?.name || "",
           slug: categorySlug,
         },
         customer: {
@@ -570,8 +586,8 @@ export async function createBooking(
           type: "MAKE_ERROR",
           entityId: input.entityId,
           sellerId: chosen.sellerId,
-          locationId: location.id,
-          categoryId: availability.data.category.id,
+          locationId,
+          categoryId,
           message: `${label}: ${webhookResult.error}`,
         });
       } else {
@@ -589,13 +605,15 @@ export async function createBooking(
           name: chosen.name,
           imageUrl: chosen.imageUrl,
         },
-        location: {
-          id: location.id,
-          name: location.name,
-          permalink: location.permalink,
-          address: location.address,
-        },
-        category: availability.data.category,
+        location: location
+          ? {
+              id: location.id,
+              name: location.name,
+              permalink: location.permalink,
+              address: location.address,
+            }
+          : null,
+        category,
         date: input.date,
         start: input.start,
         end: input.end,

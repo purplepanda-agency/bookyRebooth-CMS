@@ -61,8 +61,8 @@ export function buildHourlySlots(
 
 export type AvailabilitySlotsInput = {
   entityId: string;
-  location: string;
-  category: string;
+  location?: string | null;
+  category?: string | null;
   date: string;
   dayStartHour?: number;
 };
@@ -77,8 +77,8 @@ export type AvailabilitySlotsResult = {
     permalink: string;
     address: string;
     imageUrl: string | null;
-  };
-  category: { id: string; name: string; slug: string };
+  } | null;
+  category: { id: string; name: string; slug: string } | null;
   sellers: Array<{
     sellerId: string;
     name: string;
@@ -101,6 +101,11 @@ export type AvailabilitySlotsResult = {
   }>;
 };
 
+function normalizeOptionalSlug(value: string | null | undefined) {
+  const trimmed = value?.trim().toLowerCase() || "";
+  return trimmed || null;
+}
+
 export async function getAvailabilitySlots(
   input: AvailabilitySlotsInput,
 ): Promise<
@@ -117,46 +122,60 @@ export async function getAvailabilitySlots(
   }
 
   const dayStartHour = input.dayStartHour ?? 10;
-  const locationPermalink = input.location.trim().toLowerCase();
-  const categorySlug = input.category.trim().toLowerCase();
+  const locationPermalink = normalizeOptionalSlug(input.location);
+  const categorySlug = normalizeOptionalSlug(input.category);
 
-  const location = await prisma.location.findFirst({
-    where: {
-      permalink: locationPermalink,
-      entityId: input.entityId,
-    },
-    select: {
-      id: true,
-      name: true,
-      permalink: true,
-      address: true,
-      imageUrl: true,
-      entityId: true,
-    },
-  });
+  let location: {
+    id: string;
+    name: string;
+    permalink: string;
+    address: string;
+    imageUrl: string | null;
+    entityId: string;
+  } | null = null;
 
-  if (!location) {
-    return {
-      ok: false,
-      status: 404,
-      error: `Locatie '${input.location}' niet gevonden`,
-    };
+  if (locationPermalink) {
+    location = await prisma.location.findFirst({
+      where: {
+        permalink: locationPermalink,
+        entityId: input.entityId,
+      },
+      select: {
+        id: true,
+        name: true,
+        permalink: true,
+        address: true,
+        imageUrl: true,
+        entityId: true,
+      },
+    });
+
+    if (!location) {
+      return {
+        ok: false,
+        status: 404,
+        error: `Locatie '${input.location}' niet gevonden`,
+      };
+    }
   }
 
-  const category = await prisma.category.findFirst({
-    where: {
-      slug: categorySlug,
-      entityId: location.entityId,
-    },
-    select: { id: true, name: true, slug: true },
-  });
+  let category: { id: string; name: string; slug: string } | null = null;
+  if (categorySlug) {
+    category = await prisma.category.findFirst({
+      where: {
+        slug: categorySlug,
+        entityId: input.entityId,
+      },
+      select: { id: true, name: true, slug: true },
+    });
 
-  if (!category) {
-    return {
-      ok: false,
-      status: 404,
-      error: `Categorie '${input.category}' niet gevonden`,
-    };
+    if (!category) {
+      return {
+        ok: false,
+        status: 404,
+        error: `Categorie '${input.category}' niet gevonden`,
+      };
+    }
   }
 
   const weekday = JS_DAY_TO_WEEKDAY[new Date(`${input.date}T12:00:00`).getDay()];
@@ -164,12 +183,12 @@ export async function getAvailabilitySlots(
   const sellers = await prisma.seller.findMany({
     where: {
       active: true,
-      entityId: location.entityId,
-      categories: { some: { id: category.id } },
+      entityId: input.entityId,
+      ...(category ? { categories: { some: { id: category.id } } } : {}),
       schedules: {
         some: {
           weekday,
-          locationId: location.id,
+          ...(location ? { locationId: location.id } : {}),
         },
       },
     },
@@ -179,14 +198,16 @@ export async function getAvailabilitySlots(
       name: true,
       email: true,
       imageUrl: true,
+      primaryLocationId: true,
       schedules: {
         where: {
           weekday,
-          locationId: location.id,
+          ...(location ? { locationId: location.id } : {}),
         },
         select: {
           startTime: true,
           endTime: true,
+          locationId: true,
         },
       },
     },
@@ -194,11 +215,17 @@ export async function getAvailabilitySlots(
 
   const sellersWithSlots = sellers
     .map((seller) => {
-      const work = seller.schedules[0];
-      if (!work) return null;
+      const schedules = seller.schedules;
+      if (schedules.length === 0) return null;
+      const preferred =
+        (seller.primaryLocationId
+          ? schedules.find(
+              (item) => item.locationId === seller.primaryLocationId,
+            )
+          : null) ?? schedules[0]!;
       const candidateSlots = buildHourlySlots(
-        work.startTime,
-        work.endTime,
+        preferred.startTime,
+        preferred.endTime,
         dayStartHour,
       );
       return {
@@ -208,8 +235,8 @@ export async function getAvailabilitySlots(
         imageUrl: seller.imageUrl,
         workSchedule: {
           weekday,
-          startTime: work.startTime,
-          endTime: work.endTime,
+          startTime: preferred.startTime,
+          endTime: preferred.endTime,
         },
         candidateSlots,
       };
@@ -275,18 +302,16 @@ export async function getAvailabilitySlots(
       date: input.date,
       weekday,
       dayStartHour,
-      location: {
-        id: location.id,
-        name: location.name,
-        permalink: location.permalink,
-        address: location.address,
-        imageUrl: location.imageUrl,
-      },
-      category: {
-        id: category.id,
-        name: category.name,
-        slug: category.slug,
-      },
+      location: location
+        ? {
+            id: location.id,
+            name: location.name,
+            permalink: location.permalink,
+            address: location.address,
+            imageUrl: location.imageUrl,
+          }
+        : null,
+      category,
       sellers: results,
     },
   };
