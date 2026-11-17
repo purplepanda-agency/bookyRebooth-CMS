@@ -203,6 +203,11 @@ usersRouter.patch("/:id", async (req, res, next) => {
     }
 
     if (current.role === "ADMIN") {
+      if (body.password !== undefined || body.role !== undefined) {
+        res.status(403).json({ error: "Geen rechten om dit te wijzigen" });
+        return;
+      }
+
       if (existing.role !== "ADMIN") {
         res.status(403).json({ error: "Geen rechten om deze gebruiker te wijzigen" });
         return;
@@ -248,6 +253,27 @@ usersRouter.patch("/:id", async (req, res, next) => {
       return;
     }
 
+    const passwordHash =
+      body.password !== undefined
+        ? await bcrypt.hash(body.password, 12)
+        : undefined;
+
+    const touchesRoleOrEntities =
+      body.role !== undefined || body.entityIds !== undefined;
+
+    if (!touchesRoleOrEntities) {
+      await prisma.user.update({
+        where: { id },
+        data: { passwordHash },
+      });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id },
+        select: userSelect,
+      });
+      res.json({ user: presentUser(user) });
+      return;
+    }
+
     if (body.role && body.role !== existing.role && id === current.id) {
       res.status(400).json({ error: "Je kunt je eigen rol niet wijzigen" });
       return;
@@ -266,7 +292,10 @@ usersRouter.patch("/:id", async (req, res, next) => {
       await prisma.$transaction([
         prisma.user.update({
           where: { id },
-          data: { role: "SUPER_ADMIN" },
+          data: {
+            role: "SUPER_ADMIN",
+            ...(passwordHash ? { passwordHash } : {}),
+          },
         }),
         prisma.userEntity.deleteMany({ where: { userId: id } }),
       ]);
@@ -293,7 +322,13 @@ usersRouter.patch("/:id", async (req, res, next) => {
       }
 
       await prisma.$transaction([
-        prisma.user.update({ where: { id }, data: { role: "ADMIN" } }),
+        prisma.user.update({
+          where: { id },
+          data: {
+            role: "ADMIN",
+            ...(passwordHash ? { passwordHash } : {}),
+          },
+        }),
         prisma.userEntity.deleteMany({ where: { userId: id } }),
         prisma.userEntity.createMany({
           data: unique.map((entityId) => ({ userId: id, entityId })),
@@ -306,6 +341,49 @@ usersRouter.patch("/:id", async (req, res, next) => {
       select: userSelect,
     });
     res.json({ user: presentUser(user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+usersRouter.delete("/:id", async (req, res, next) => {
+  try {
+    const current = req.user!;
+    if (current.role !== "SUPER_ADMIN") {
+      res.status(403).json({ error: "Geen rechten om gebruikers te verwijderen" });
+      return;
+    }
+
+    const id = String(req.params.id);
+    if (id === current.id) {
+      res.status(400).json({ error: "Je kunt jezelf niet verwijderen" });
+      return;
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, role: true },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: "Gebruiker niet gevonden" });
+      return;
+    }
+
+    if (existing.role === "SUPER_ADMIN") {
+      const superCount = await prisma.user.count({
+        where: { role: "SUPER_ADMIN" },
+      });
+      if (superCount <= 1) {
+        res.status(400).json({
+          error: "Er moet minstens één super admin blijven",
+        });
+        return;
+      }
+    }
+
+    await prisma.user.delete({ where: { id } });
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

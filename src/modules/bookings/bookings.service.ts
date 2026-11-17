@@ -7,14 +7,19 @@ import {
 import {
   absoluteMediaUrl,
   buildBookingMailData,
+  buildSellerBookingMailData,
   formatAppointmentTime,
+  isSellerBookingMailConfigured,
   isSendGridConfigured,
   sendBookingConfirmationEmail,
   sendGridMissingConfig,
+  sendSellerBookingEmail,
+  sellerSendGridMissingConfig,
 } from "../../lib/sendgrid.js";
 import { env } from "../../config/env.js";
 import {
   buildBookingCurrentUrl,
+  buildResultStepContext,
   interestVehicleNewUsedFromCategorySlug,
   isWebhookPayload,
   renderWebhookPayload,
@@ -43,6 +48,12 @@ export type CreateBookingInput = {
   };
   productName?: string | null;
   flowSlug?: string | null;
+  stepResults?: Array<{
+    index: number;
+    type: string;
+    name: string;
+    slug: string;
+  }>;
   publicBaseUrl: string;
 };
 
@@ -376,24 +387,32 @@ export async function createBooking(
     let mailSent = false;
     let mailError: string | undefined;
 
+    const entity = await prisma.entity.findUnique({
+      where: { id: input.entityId },
+      select: { emailExtraTxt: true, logoUrl: true },
+    });
+    const publicBaseUrl = resolvePublicBaseUrl(input.publicBaseUrl);
+    const entityLogo = absoluteMediaUrl(entity?.logoUrl, publicBaseUrl);
+    const locationImage = absoluteMediaUrl(location.imageUrl, publicBaseUrl);
+    const appointmentLabel = formatAppointmentTime(
+      input.date,
+      input.start,
+      input.end,
+    );
+
     if (isSendGridConfigured()) {
       try {
-        const entity = await prisma.entity.findUnique({
-          where: { id: input.entityId },
-          select: { emailExtraTxt: true, logoUrl: true },
-        });
-        const publicBaseUrl = resolvePublicBaseUrl(input.publicBaseUrl);
         await sendBookingConfirmationEmail({
           toEmail: input.customer.email,
           toName: customerName,
           data: buildBookingMailData({
             locationName: location.name,
             locationAddress: location.address,
-            time: formatAppointmentTime(input.date, input.start, input.end),
+            time: appointmentLabel,
             employeeName: chosen.name,
             emailExtraTxt: entity?.emailExtraTxt || "",
-            entityLogo: absoluteMediaUrl(entity?.logoUrl, publicBaseUrl),
-            locationImage: absoluteMediaUrl(location.imageUrl, publicBaseUrl),
+            entityLogo,
+            locationImage,
             employeeImage: absoluteMediaUrl(chosen.imageUrl, publicBaseUrl),
           }),
         });
@@ -401,7 +420,7 @@ export async function createBooking(
       } catch (error) {
         mailError =
           error instanceof Error ? error.message : "Bevestigingsmail mislukt";
-        console.error("[booking] SendGrid error:", mailError);
+        console.error("[booking] SendGrid customer error:", mailError);
         trackEvent({
           type: "EMAIL_ERROR",
           entityId: input.entityId,
@@ -427,6 +446,58 @@ export async function createBooking(
       });
     }
 
+    if (isSellerBookingMailConfigured()) {
+      try {
+        await sendSellerBookingEmail({
+          toEmail: chosen.email,
+          toName: chosen.name,
+          data: buildSellerBookingMailData({
+            entityLogo,
+            locationImage,
+            clientName: customerName,
+            date: appointmentLabel,
+            location: location.name,
+            telefoonNummer: input.customer.phone.trim(),
+            emailAdres: input.customer.email.trim(),
+            address: input.customer.address?.trim() || "",
+            productName: input.productName,
+            currentVehicle: input.customer.currentVehicle,
+            remarks: input.customer.extraInfo,
+          }),
+        });
+      } catch (error) {
+        const sellerMailError =
+          error instanceof Error
+            ? error.message
+            : "Verkoper-bevestigingsmail mislukt";
+        console.error("[booking] SendGrid seller error:", sellerMailError);
+        if (!mailError) mailError = sellerMailError;
+        trackEvent({
+          type: "EMAIL_ERROR",
+          entityId: input.entityId,
+          sellerId: chosen.sellerId,
+          locationId: location.id,
+          categoryId: availability.data.category.id,
+          message: `Verkoper-mail: ${sellerMailError}`,
+        });
+      }
+    } else {
+      const missing = sellerSendGridMissingConfig();
+      const sellerMissing =
+        missing.length > 0
+          ? `SendGrid verkoper-mail niet geconfigureerd (ontbreekt: ${missing.join(", ")})`
+          : "SendGrid verkoper-mail niet geconfigureerd";
+      console.warn(`[booking] ${sellerMissing}`);
+      trackEvent({
+        type: "EMAIL_ERROR",
+        entityId: input.entityId,
+        sellerId: chosen.sellerId,
+        locationId: location.id,
+        categoryId: availability.data.category.id,
+        message: sellerMissing,
+      });
+    }
+
     const webhookBundle = await loadConfirmationWebhooks(
       input.entityId,
       input.flowSlug,
@@ -441,6 +512,8 @@ export async function createBooking(
       webhookPublicBaseUrl,
       webhookBundle.flow.slug || input.flowSlug,
     );
+
+    const resultStepContext = buildResultStepContext(input.stepResults);
 
     for (const webhookConfig of webhookBundle.webhooks) {
       const categorySlug = availability.data.category.slug;
@@ -480,6 +553,7 @@ export async function createBooking(
           currentVehicle: input.customer.currentVehicle?.trim() || "",
           extraInfo: input.customer.extraInfo?.trim() || "",
         },
+        ...resultStepContext,
       });
 
       console.info(

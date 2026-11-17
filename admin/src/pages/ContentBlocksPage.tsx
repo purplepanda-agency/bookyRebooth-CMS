@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import { api } from "../api/client";
 import type { ContentBlock, ContentBlockButton } from "../api/types";
@@ -39,6 +39,7 @@ export function ContentBlocksPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const tableColSpan = 4;
 
   const selectOptions = useMemo(
     () =>
@@ -125,6 +126,12 @@ export function ContentBlocksPage() {
     setShowForm(true);
   }
 
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
   function addButton() {
     setForm((prev) => ({
       ...prev,
@@ -195,9 +202,7 @@ export function ContentBlocksPage() {
         });
       }
 
-      setShowForm(false);
-      setEditingId(null);
-      setForm(emptyForm);
+      closeForm();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
@@ -241,6 +246,160 @@ export function ContentBlocksPage() {
     }
   }
 
+  function renderContentBlockFormFields(mode: "create" | "edit") {
+    return (
+      <>
+        <h2>
+          {mode === "edit" ? "Contentblok bewerken" : "Nieuw contentblok"}
+        </h2>
+
+        <label>
+          Titel
+          <input
+            value={form.title}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, title: event.target.value }))
+            }
+            required
+            maxLength={200}
+          />
+        </label>
+
+        <label>
+          Tekst
+          <textarea
+            value={form.text}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, text: event.target.value }))
+            }
+            required
+            rows={5}
+          />
+        </label>
+
+        <div className="stack">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "1rem",
+            }}
+          >
+            <strong>Knoppen</strong>
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={addButton}
+            >
+              Knop toevoegen
+            </button>
+          </div>
+          {form.buttons.length === 0 ? (
+            <p className="muted" style={{ margin: 0 }}>
+              Nog geen knoppen. Optioneel: voeg één of meer knoppen toe.
+            </p>
+          ) : (
+            form.buttons.map((button, index) => (
+              <div key={index} className="form-grid two">
+                <label>
+                  Label
+                  <input
+                    value={button.label}
+                    onChange={(event) =>
+                      updateButton(index, "label", event.target.value)
+                    }
+                    placeholder="BMW SERVICE AFSPRAAK"
+                    maxLength={120}
+                  />
+                </label>
+                <label>
+                  URL
+                  <div className="actions" style={{ alignItems: "center" }}>
+                    <input
+                      value={button.url}
+                      onChange={(event) =>
+                        updateButton(index, "url", event.target.value)
+                      }
+                      placeholder="https://… of /pad"
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small"
+                      onClick={() => removeButton(index)}
+                    >
+                      Verwijder
+                    </button>
+                  </div>
+                </label>
+              </div>
+            ))
+          )}
+        </div>
+
+        <label>
+          Gekoppelde stappen
+          <Select
+            isMulti
+            options={selectOptions}
+            value={selectOptions.filter((option) =>
+              form.stepIds.includes(option.value),
+            )}
+            onChange={(selected) =>
+              setForm((prev) => ({
+                ...prev,
+                stepIds: selected.map((option) => option.value),
+              }))
+            }
+            placeholder="Kies één of meer flowstappen…"
+            classNamePrefix="rs"
+            menuPortalTarget={document.body}
+            menuPosition="fixed"
+            styles={{
+              menuPortal: (base) => ({ ...base, zIndex: 40 }),
+            }}
+          />
+        </label>
+
+        <label className="switch-row">
+          <span className="switch">
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  active: event.target.checked,
+                }))
+              }
+            />
+            <span className="switch-slider" />
+          </span>
+          <span>
+            <strong>{form.active ? "Actief" : "Inactief"}</strong>
+            <span className="muted" style={{ display: "block" }}>
+              Inactieve contentblokken verschijnen niet in de booking tool.
+            </span>
+          </span>
+        </label>
+
+        <div className="actions">
+          <button type="submit" className="btn" disabled={saving}>
+            {saving ? "Opslaan…" : "Opslaan"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={closeForm}
+          >
+            Annuleren
+          </button>
+        </div>
+      </>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -279,218 +438,110 @@ export function ContentBlocksPage() {
             </thead>
             <tbody>
               {blocks.map((block) => (
-                <tr key={block.id}>
-                  <td>
-                    <label className="switch-row switch-row-compact">
-                      <span className="switch">
-                        <input
-                          type="checkbox"
-                          checked={block.active}
-                          onChange={() => void toggleActive(block)}
-                          aria-label={
-                            block.active
-                              ? "Deactiveer contentblok"
-                              : "Activeer contentblok"
+                <Fragment key={block.id}>
+                  <tr>
+                    <td>
+                      <label className="switch-row switch-row-compact">
+                        <span className="switch">
+                          <input
+                            type="checkbox"
+                            checked={block.active}
+                            onChange={() => void toggleActive(block)}
+                            aria-label={
+                              block.active
+                                ? "Deactiveer contentblok"
+                                : "Activeer contentblok"
+                            }
+                          />
+                          <span className="switch-slider" />
+                        </span>
+                      </label>
+                    </td>
+                    <td>
+                      <strong>{block.title}</strong>
+                    </td>
+                    <td>
+                      {block.steps.length === 0 ? (
+                        <span className="muted">Geen stappen</span>
+                      ) : (
+                        <div className="stack" style={{ gap: "0.2rem" }}>
+                          {block.steps.map((step) => (
+                            <div key={step.id}>
+                              {step.flow.name} · stap {step.sortOrder + 1}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className={
+                            showForm && editingId === block.id
+                              ? "btn btn-small"
+                              : "btn btn-secondary btn-small"
                           }
-                        />
-                        <span className="switch-slider" />
-                      </span>
-                    </label>
-                  </td>
-                  <td>
-                    <strong>{block.title}</strong>
-                  </td>
-                  <td>
-                    {block.steps.length === 0 ? (
-                      <span className="muted">Geen stappen</span>
-                    ) : (
-                      <div className="stack" style={{ gap: "0.2rem" }}>
-                        {block.steps.map((step) => (
-                          <div key={step.id}>
-                            {step.flow.name} · stap {step.sortOrder + 1}
-                          </div>
-                        ))}
+                          disabled={
+                            (showForm &&
+                              Boolean(editingId) &&
+                              editingId !== block.id) ||
+                            (editingId === block.id && saving)
+                          }
+                          onClick={() => {
+                            if (showForm && editingId === block.id) {
+                              (
+                                document.getElementById(
+                                  "content-block-form-edit",
+                                ) as HTMLFormElement | null
+                              )?.requestSubmit();
+                              return;
+                            }
+                            startEdit(block);
+                          }}
+                        >
+                          {showForm && editingId === block.id
+                            ? saving
+                              ? "Opslaan…"
+                              : "Opslaan"
+                            : "Bewerken"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() => void onDelete(block)}
+                        >
+                          Verwijderen
+                        </button>
                       </div>
-                    )}
-                  </td>
-                  <td>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        onClick={() => startEdit(block)}
-                      >
-                        Bewerken
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        onClick={() => void onDelete(block)}
-                      >
-                        Verwijderen
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {showForm && editingId === block.id ? (
+                    <tr className="table-row-expand">
+                      <td colSpan={tableColSpan}>
+                        <form
+                          id="content-block-form-edit"
+                          className="table-expand-panel stack"
+                          onSubmit={onSubmit}
+                        >
+                          {renderContentBlockFormFields("edit")}
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
 
-        {showForm ? (
+        {showForm && !editingId ? (
           <form
-            id="content-block-form"
+            id="content-block-form-create"
             className="drawer stack"
             onSubmit={onSubmit}
           >
-            <h2>{editingId ? "Contentblok bewerken" : "Nieuw contentblok"}</h2>
-
-            <label>
-              Titel
-              <input
-                value={form.title}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, title: event.target.value }))
-                }
-                required
-                maxLength={200}
-              />
-            </label>
-
-            <label>
-              Tekst
-              <textarea
-                value={form.text}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, text: event.target.value }))
-                }
-                required
-                rows={5}
-              />
-            </label>
-
-            <div className="stack">
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "1rem",
-                }}
-              >
-                <strong>Knoppen</strong>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-small"
-                  onClick={addButton}
-                >
-                  Knop toevoegen
-                </button>
-              </div>
-              {form.buttons.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>
-                  Nog geen knoppen. Optioneel: voeg één of meer knoppen toe.
-                </p>
-              ) : (
-                form.buttons.map((button, index) => (
-                  <div key={index} className="form-grid two">
-                    <label>
-                      Label
-                      <input
-                        value={button.label}
-                        onChange={(event) =>
-                          updateButton(index, "label", event.target.value)
-                        }
-                        placeholder="BMW SERVICE AFSPRAAK"
-                        maxLength={120}
-                      />
-                    </label>
-                    <label>
-                      URL
-                      <div className="actions" style={{ alignItems: "center" }}>
-                        <input
-                          value={button.url}
-                          onChange={(event) =>
-                            updateButton(index, "url", event.target.value)
-                          }
-                          placeholder="https://… of /pad"
-                          style={{ flex: 1 }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-small"
-                          onClick={() => removeButton(index)}
-                        >
-                          Verwijder
-                        </button>
-                      </div>
-                    </label>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <label>
-              Gekoppelde stappen
-              <Select
-                isMulti
-                options={selectOptions}
-                value={selectOptions.filter((option) =>
-                  form.stepIds.includes(option.value),
-                )}
-                onChange={(selected) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    stepIds: selected.map((option) => option.value),
-                  }))
-                }
-                placeholder="Kies één of meer flowstappen…"
-                classNamePrefix="rs"
-                menuPortalTarget={document.body}
-                menuPosition="fixed"
-                styles={{
-                  menuPortal: (base) => ({ ...base, zIndex: 40 }),
-                }}
-              />
-            </label>
-
-            <label className="switch-row">
-              <span className="switch">
-                <input
-                  type="checkbox"
-                  checked={form.active}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      active: event.target.checked,
-                    }))
-                  }
-                />
-                <span className="switch-slider" />
-              </span>
-              <span>
-                <strong>{form.active ? "Actief" : "Inactief"}</strong>
-                <span className="muted" style={{ display: "block" }}>
-                  Inactieve contentblokken verschijnen niet in de booking tool.
-                </span>
-              </span>
-            </label>
-
-            <div className="actions">
-              <button type="submit" className="btn" disabled={saving}>
-                {saving ? "Opslaan…" : "Opslaan"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingId(null);
-                }}
-              >
-                Annuleren
-              </button>
-            </div>
+            {renderContentBlockFormFields("create")}
           </form>
         ) : null}
       </div>

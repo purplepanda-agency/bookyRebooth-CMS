@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useRef, useState } from "react";
 import { api, uploadMedia } from "../api/client";
 import type { Category } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
@@ -39,6 +39,7 @@ export function CategoriesPage() {
   const [uploading, setUploading] = useState(false);
   const [slugTouched, setSlugTouched] = useState(false);
   const mediaEntityKey = selectedEntity?.slug || "global";
+  const tableColSpan = 3;
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +108,13 @@ export function CategoriesPage() {
     setShowForm(true);
   }
 
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setSlugTouched(false);
+  }
+
   async function onImageChange(file: File | null) {
     if (!file) return;
     setUploading(true);
@@ -154,9 +162,7 @@ export function CategoriesPage() {
         });
       }
 
-      setShowForm(false);
-      setForm(emptyForm);
-      setEditingId(null);
+      closeForm();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
@@ -174,6 +180,98 @@ export function CategoriesPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verwijderen mislukt");
     }
+  }
+
+  function renderCategoryFormFields(mode: "create" | "edit") {
+    return (
+      <>
+        <h2>{mode === "edit" ? "Categorie bewerken" : "Nieuwe categorie"}</h2>
+
+        <div className="form-grid two">
+          <label>
+            Naam
+            <input
+              value={form.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                setForm((prev) => ({
+                  ...prev,
+                  name,
+                  slug: slugTouched ? prev.slug : slugify(name),
+                }));
+              }}
+              required
+            />
+          </label>
+          <label>
+            Slug
+            <input
+              value={form.slug}
+              onChange={(e) => {
+                setSlugTouched(true);
+                setForm((prev) => ({ ...prev, slug: e.target.value }));
+              }}
+              required
+            />
+          </label>
+        </div>
+
+        <label>
+          Afbeelding (optioneel)
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) =>
+              void onImageChange(e.target.files?.[0] ?? null)
+            }
+          />
+        </label>
+        {uploading ? <p className="muted">Afbeelding uploaden…</p> : null}
+        {form.imageUrl ? (
+          <div className="stack">
+            <img
+              src={form.imageUrl}
+              alt="Categorie"
+              style={{
+                width: 120,
+                height: 80,
+                objectFit: "cover",
+                borderRadius: 8,
+                border: "1px solid var(--line)",
+              }}
+            />
+            <div className="actions" style={{ justifyContent: "flex-start" }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={() =>
+                  setForm((prev) => ({ ...prev, imageUrl: "" }))
+                }
+              >
+                Afbeelding verwijderen
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={closeForm}
+          >
+            Annuleren
+          </button>
+          <button
+            type="submit"
+            className="btn"
+            disabled={saving || uploading}
+          >
+            {saving ? "Opslaan…" : "Opslaan"}
+          </button>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -210,180 +308,117 @@ export function CategoriesPage() {
             </thead>
             <tbody>
               {categories.map((category) => (
-                <tr key={category.id}>
-                  <td>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.75rem",
-                      }}
-                    >
-                      {category.imageUrl ? (
-                        <img
-                          src={category.imageUrl}
-                          alt=""
-                          style={{
-                            width: 40,
-                            height: 40,
-                            objectFit: "cover",
-                            borderRadius: 6,
-                            border: "1px solid var(--line)",
-                          }}
-                        />
-                      ) : (
-                        <div
-                          aria-hidden="true"
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 6,
-                            border: "1px solid var(--line)",
-                            background: "var(--surface-2, #f3f3f3)",
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                      <span>{category.name}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="badge">{category.slug}</span>
-                  </td>
-                  <td>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className={
-                          showForm && editingId === category.id
-                            ? "btn btn-small"
-                            : "btn btn-secondary btn-small"
-                        }
-                        disabled={
-                          (showForm && editingId !== category.id) ||
-                          (editingId === category.id &&
-                            (saving || uploading))
-                        }
-                        onClick={() => {
-                          if (showForm && editingId === category.id) {
-                            (
-                              document.getElementById(
-                                "category-form",
-                              ) as HTMLFormElement | null
-                            )?.requestSubmit();
-                            return;
-                          }
-                          startEdit(category);
+                <Fragment key={category.id}>
+                  <tr>
+                    <td>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.75rem",
                         }}
                       >
-                        {showForm && editingId === category.id
-                          ? saving
-                            ? "Opslaan…"
-                            : "Opslaan"
-                          : "Bewerken"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        onClick={() => void onDelete(category.id)}
-                      >
-                        Verwijderen
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                        {category.imageUrl ? (
+                          <img
+                            src={category.imageUrl}
+                            alt=""
+                            style={{
+                              width: 40,
+                              height: 40,
+                              objectFit: "cover",
+                              borderRadius: 6,
+                              border: "1px solid var(--line)",
+                            }}
+                          />
+                        ) : (
+                          <div
+                            aria-hidden="true"
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 6,
+                              border: "1px solid var(--line)",
+                              background: "var(--surface-2, #f3f3f3)",
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                        <span>{category.name}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="badge">{category.slug}</span>
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className={
+                            showForm && editingId === category.id
+                              ? "btn btn-small"
+                              : "btn btn-secondary btn-small"
+                          }
+                          disabled={
+                            (showForm &&
+                              Boolean(editingId) &&
+                              editingId !== category.id) ||
+                            (editingId === category.id &&
+                              (saving || uploading))
+                          }
+                          onClick={() => {
+                            if (showForm && editingId === category.id) {
+                              (
+                                document.getElementById(
+                                  "category-form-edit",
+                                ) as HTMLFormElement | null
+                              )?.requestSubmit();
+                              return;
+                            }
+                            startEdit(category);
+                          }}
+                        >
+                          {showForm && editingId === category.id
+                            ? saving
+                              ? "Opslaan…"
+                              : "Opslaan"
+                            : "Bewerken"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() => void onDelete(category.id)}
+                        >
+                          Verwijderen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {showForm && editingId === category.id ? (
+                    <tr className="table-row-expand">
+                      <td colSpan={tableColSpan}>
+                        <form
+                          id="category-form-edit"
+                          className="table-expand-panel stack"
+                          onSubmit={onSubmit}
+                        >
+                          {renderCategoryFormFields("edit")}
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
 
-        {showForm ? (
-          <form id="category-form" className="drawer stack" onSubmit={onSubmit}>
-            <h2>{editingId ? "Categorie bewerken" : "Nieuwe categorie"}</h2>
-
-            <div className="form-grid two">
-              <label>
-                Naam
-                <input
-                  value={form.name}
-                  onChange={(e) => {
-                    const name = e.target.value;
-                    setForm((prev) => ({
-                      ...prev,
-                      name,
-                      slug: slugTouched ? prev.slug : slugify(name),
-                    }));
-                  }}
-                  required
-                />
-              </label>
-              <label>
-                Slug
-                <input
-                  value={form.slug}
-                  onChange={(e) => {
-                    setSlugTouched(true);
-                    setForm((prev) => ({ ...prev, slug: e.target.value }));
-                  }}
-                  required
-                />
-              </label>
-            </div>
-
-            <label>
-              Afbeelding (optioneel)
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  void onImageChange(e.target.files?.[0] ?? null)
-                }
-              />
-            </label>
-            {uploading ? <p className="muted">Afbeelding uploaden…</p> : null}
-            {form.imageUrl ? (
-              <div className="stack">
-                <img
-                  src={form.imageUrl}
-                  alt="Categorie"
-                  style={{
-                    width: 120,
-                    height: 80,
-                    objectFit: "cover",
-                    borderRadius: 8,
-                    border: "1px solid var(--line)",
-                  }}
-                />
-                <div className="actions" style={{ justifyContent: "flex-start" }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-small"
-                    onClick={() =>
-                      setForm((prev) => ({ ...prev, imageUrl: "" }))
-                    }
-                  >
-                    Afbeelding verwijderen
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowForm(false)}
-              >
-                Annuleren
-              </button>
-              <button
-                type="submit"
-                className="btn"
-                disabled={saving || uploading}
-              >
-                {saving ? "Opslaan…" : "Opslaan"}
-              </button>
-            </div>
+        {showForm && !editingId ? (
+          <form
+            id="category-form-create"
+            className="drawer stack"
+            onSubmit={onSubmit}
+          >
+            {renderCategoryFormFields("create")}
           </form>
         ) : null}
       </div>

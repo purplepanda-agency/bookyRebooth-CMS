@@ -12,6 +12,7 @@ type ActivityEntry = {
   userEmail: string;
   userRole: Role;
   action: ActivityAction | string;
+  entryType: string | null;
   summary: string;
   detail: string | null;
   entityName: string | null;
@@ -19,8 +20,24 @@ type ActivityEntry = {
 
 type ActivityResponse = {
   entries: ActivityEntry[];
-  nextCursor: string | null;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 };
+
+const PAGE_SIZE = 20;
+
+const ENTRY_TYPES = [
+  "Entiteiten",
+  "Gebruikers",
+  "Locaties",
+  "Verkopers",
+  "Categorieën",
+  "Flows",
+  "Contentblokken",
+  "Product sets",
+] as const;
 
 const roleLabel: Record<Role, string> = {
   SUPER_ADMIN: "Super admin",
@@ -48,20 +65,74 @@ function formatWhen(value: string) {
   }).format(date);
 }
 
+/** Split legacy summaries like `Locatie «X» bijgewerkt` into type + record. */
+function displayWat(entry: ActivityEntry): {
+  entryType: string;
+  what: string;
+} {
+  if (entry.entryType) {
+    return { entryType: entry.entryType, what: entry.summary || "—" };
+  }
+
+  const summary = entry.summary;
+
+  const password = summary.match(/^Wachtwoord van «(.+?)» gewijzigd$/);
+  if (password) {
+    return { entryType: "Gebruikers", what: password[1]! };
+  }
+
+  const reorder = summary.match(/^Volgorde van (\d+) flows aangepast$/i);
+  if (reorder) {
+    return { entryType: "Flows", what: `Volgorde (${reorder[1]})` };
+  }
+
+  const group = summary.match(
+    /^(.+?)\s+(?:aangemaakt|bijgewerkt|verwijderd):\s*(.+)$/,
+  );
+  if (group) {
+    return {
+      entryType: group[1]!,
+      what: group[2]!.replaceAll(/[«»]/g, ""),
+    };
+  }
+
+  const one = summary.match(
+    /^(.+?)\s+«(.+?)»\s+(?:aangemaakt|bijgewerkt|verwijderd)$/,
+  );
+  if (one) {
+    return { entryType: one[1]!, what: one[2]! };
+  }
+
+  const bare = summary.match(
+    /^(.+?)\s+(?:aangemaakt|bijgewerkt|verwijderd)$/,
+  );
+  if (bare) {
+    return { entryType: bare[1]!, what: "—" };
+  }
+
+  return { entryType: "—", what: summary || "—" };
+}
+
 function activityPath(options: {
   q: string;
   userId: string;
   entityId: string;
-  cursor?: string | null;
+  entryType: string;
+  dateFrom: string;
+  dateTo: string;
+  page: number;
 }) {
   const params = new URLSearchParams();
   const q = options.q.trim();
   if (q) params.set("q", q);
   if (options.userId) params.set("userId", options.userId);
   if (options.entityId) params.set("entityId", options.entityId);
-  if (options.cursor) params.set("cursor", options.cursor);
-  const query = params.toString();
-  return query ? `/activity?${query}` : "/activity";
+  if (options.entryType) params.set("entryType", options.entryType);
+  if (options.dateFrom) params.set("dateFrom", options.dateFrom);
+  if (options.dateTo) params.set("dateTo", options.dateTo);
+  params.set("page", String(options.page));
+  params.set("limit", String(PAGE_SIZE));
+  return `/activity?${params.toString()}`;
 }
 
 export function ActivityPage() {
@@ -72,10 +143,14 @@ export function ActivityPage() {
   const [query, setQuery] = useState("");
   const [userId, setUserId] = useState("");
   const [entityId, setEntityId] = useState("");
+  const [entryType, setEntryType] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -119,15 +194,26 @@ export function ActivityPage() {
         setError(null);
         try {
           const data = await api<ActivityResponse>(
-            activityPath({ q: query, userId, entityId }),
+            activityPath({
+              q: query,
+              userId,
+              entityId,
+              entryType,
+              dateFrom,
+              dateTo,
+              page,
+            }),
           );
           if (cancelled) return;
           setEntries(data.entries);
-          setNextCursor(data.nextCursor);
+          setTotal(data.total);
+          setTotalPages(data.totalPages);
+          if (data.page !== page) setPage(data.page);
         } catch (err) {
           if (!cancelled) {
             setEntries([]);
-            setNextCursor(null);
+            setTotal(0);
+            setTotalPages(1);
             setError(err instanceof Error ? err.message : "Laden mislukt");
           }
         } finally {
@@ -140,30 +226,21 @@ export function ActivityPage() {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [isSuper, query, userId, entityId]);
+  }, [isSuper, query, userId, entityId, entryType, dateFrom, dateTo, page]);
 
   if (!isSuper) {
     return <Navigate to="/" replace />;
   }
 
-  async function loadMore() {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    setError(null);
-    try {
-      const data = await api<ActivityResponse>(
-        activityPath({ q: query, userId, entityId, cursor: nextCursor }),
-      );
-      setEntries((current) => [...current, ...data.entries]);
-      setNextCursor(data.nextCursor);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Laden mislukt");
-    } finally {
-      setLoadingMore(false);
-    }
-  }
+  const filtered = Boolean(
+    query.trim() || userId || entityId || entryType || dateFrom || dateTo,
+  );
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
 
-  const filtered = Boolean(query.trim() || userId || entityId);
+  function resetPage() {
+    setPage(1);
+  }
 
   return (
     <div>
@@ -182,17 +259,43 @@ export function ActivityPage() {
           Zoeken
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              resetPage();
+            }}
             placeholder="Naam, e-mail of entiteit"
           />
         </label>
         <label>
+          Type
+          <select
+            value={entryType}
+            onChange={(event) => {
+              setEntryType(event.target.value);
+              resetPage();
+            }}
+          >
+            <option value="">Alle types</option>
+            {ENTRY_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           Gebruiker
-          <select value={userId} onChange={(event) => setUserId(event.target.value)}>
+          <select
+            value={userId}
+            onChange={(event) => {
+              setUserId(event.target.value);
+              resetPage();
+            }}
+          >
             <option value="">Alle gebruikers</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.email}
+            {users.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.email}
               </option>
             ))}
           </select>
@@ -201,7 +304,10 @@ export function ActivityPage() {
           Entiteit
           <select
             value={entityId}
-            onChange={(event) => setEntityId(event.target.value)}
+            onChange={(event) => {
+              setEntityId(event.target.value);
+              resetPage();
+            }}
           >
             <option value="">Alle entiteiten</option>
             {entities.map((entity) => (
@@ -210,6 +316,30 @@ export function ActivityPage() {
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          Van
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(event) => {
+              setDateFrom(event.target.value);
+              resetPage();
+            }}
+          />
+        </label>
+        <label>
+          Tot
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(event) => {
+              setDateTo(event.target.value);
+              resetPage();
+            }}
+          />
         </label>
       </div>
 
@@ -236,50 +366,75 @@ export function ActivityPage() {
                   <th>Wanneer</th>
                   <th>Wie</th>
                   <th>Actie</th>
+                  <th>Type</th>
                   <th>Wat</th>
                   <th>Entiteit</th>
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="activity-when">{formatWhen(entry.createdAt)}</td>
-                    <td>
-                      <div>{entry.userEmail}</div>
-                      <div className="activity-detail">
-                        {roleLabel[entry.userRole] ?? entry.userRole}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={actionClass(entry.action)}>
-                        {actionLabel[entry.action] ?? entry.action}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="activity-summary">
-                        <span>{entry.summary}</span>
-                        {entry.detail ? (
-                          <span className="activity-detail">{entry.detail}</span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td>{entry.entityName || "—"}</td>
-                  </tr>
-                ))}
+                {entries.map((entry) => {
+                  const { entryType: typeLabel, what } = displayWat(entry);
+                  return (
+                    <tr key={entry.id}>
+                      <td className="activity-when">
+                        {formatWhen(entry.createdAt)}
+                      </td>
+                      <td>
+                        <div>{entry.userEmail}</div>
+                        <div className="activity-detail">
+                          {roleLabel[entry.userRole] ?? entry.userRole}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={actionClass(entry.action)}>
+                          {actionLabel[entry.action] ?? entry.action}
+                        </span>
+                      </td>
+                      <td>{typeLabel}</td>
+                      <td>
+                        <div className="activity-summary">
+                          <span>{what}</span>
+                          {entry.detail ? (
+                            <span className="activity-detail">
+                              {entry.detail}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>{entry.entityName || "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-            {nextCursor ? (
-              <div className="activity-more">
+            <div className="activity-pagination">
+              <span className="activity-pagination-meta">
+                {from}–{to} van {total}
+              </span>
+              <div className="activity-pagination-actions">
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => void loadMore()}
-                  disabled={loadingMore}
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
                 >
-                  {loadingMore ? "Laden…" : "Meer laden"}
+                  Vorige
+                </button>
+                <span className="activity-pagination-page">
+                  Pagina {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={page >= totalPages || loading}
+                  onClick={() =>
+                    setPage((current) => Math.min(totalPages, current + 1))
+                  }
+                >
+                  Volgende
                 </button>
               </div>
-            ) : null}
+            </div>
           </>
         )}
       </div>

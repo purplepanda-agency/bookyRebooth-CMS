@@ -35,6 +35,18 @@ export const publicCreateBookingSchema = z.object({
     .max(120)
     .transform((value) => value.toLowerCase())
     .optional(),
+  stepResults: z
+    .array(
+      z.object({
+        index: z.number().int().min(1).max(40),
+        type: z.string().trim().min(1).max(40),
+        name: z.string().trim().min(1).max(200),
+        slug: z.string().trim().min(1).max(200),
+      }),
+    )
+    .max(40)
+    .optional()
+    .default([]),
   privacyAccepted: z.literal(true),
   recaptchaToken: z.string().min(1).max(4000),
   customer: z.object({

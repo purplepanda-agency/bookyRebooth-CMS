@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useRef, useState } from "react";
 import { api, uploadMedia } from "../api/client";
 import type { Location } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
@@ -47,6 +47,7 @@ export function LocationsPage() {
   const [uploading, setUploading] = useState(false);
   const [permalinkTouched, setPermalinkTouched] = useState(false);
   const mediaEntityKey = selectedEntity?.slug || "global";
+  const tableColSpan = 4;
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +118,13 @@ export function LocationsPage() {
     setShowForm(true);
   }
 
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setPermalinkTouched(false);
+  }
+
   async function onImageChange(file: File | null) {
     if (!file) return;
     setUploading(true);
@@ -172,9 +180,7 @@ export function LocationsPage() {
         });
       }
 
-      setShowForm(false);
-      setForm(emptyForm);
-      setEditingId(null);
+      closeForm();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
@@ -192,6 +198,135 @@ export function LocationsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verwijderen mislukt");
     }
+  }
+
+  function renderLocationFormFields(mode: "create" | "edit") {
+    return (
+      <>
+        <h2>{mode === "edit" ? "Locatie bewerken" : "Nieuwe locatie"}</h2>
+
+        <div className="form-grid two">
+          <label>
+            Naam
+            <input
+              value={form.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                setForm((prev) => ({
+                  ...prev,
+                  name,
+                  permalink: permalinkTouched
+                    ? prev.permalink
+                    : slugify(name),
+                }));
+              }}
+              required
+            />
+          </label>
+          <label>
+            Permalink
+            <input
+              value={form.permalink}
+              onChange={(e) => {
+                setPermalinkTouched(true);
+                setForm((prev) => ({
+                  ...prev,
+                  permalink: e.target.value,
+                }));
+              }}
+              required
+            />
+          </label>
+          <label>
+            Adres
+            <input
+              value={form.address}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, address: e.target.value }))
+              }
+              required
+            />
+          </label>
+          <label>
+            Google Maps link
+            <input
+              type="url"
+              value={form.googleMapsUrl}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  googleMapsUrl: e.target.value,
+                }))
+              }
+              required
+            />
+          </label>
+          <label>
+            Telefoonnummer
+            <input
+              value={form.phone}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, phone: e.target.value }))
+              }
+              required
+            />
+          </label>
+          <label>
+            E-mail
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, email: e.target.value }))
+              }
+              required
+            />
+          </label>
+        </div>
+
+        <label>
+          Afbeelding (optioneel)
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) =>
+              void onImageChange(e.target.files?.[0] ?? null)
+            }
+          />
+        </label>
+        {uploading ? <p className="muted">Afbeelding uploaden…</p> : null}
+        {form.imageUrl ? (
+          <img
+            src={form.imageUrl}
+            alt="Locatie"
+            style={{
+              width: 120,
+              height: 80,
+              objectFit: "cover",
+              borderRadius: 8,
+              border: "1px solid var(--line)",
+            }}
+          />
+        ) : null}
+
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={closeForm}
+          >
+            Annuleren
+          </button>
+          <button
+            type="submit"
+            className="btn"
+            disabled={saving || uploading}
+          >
+            {saving ? "Opslaan…" : "Opslaan"}
+          </button>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -229,206 +364,106 @@ export function LocationsPage() {
             </thead>
             <tbody>
               {locations.map((location) => (
-                <tr key={location.id}>
-                  <td>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.75rem",
-                      }}
-                    >
-                      {location.imageUrl ? (
-                        <img
-                          src={location.imageUrl}
-                          alt=""
-                          style={{
-                            width: 40,
-                            height: 40,
-                            objectFit: "cover",
-                            borderRadius: 6,
-                            border: "1px solid var(--line)",
-                          }}
-                        />
-                      ) : null}
-                      <span>{location.name}</span>
-                    </div>
-                  </td>
-                  <td>{location.address}</td>
-                  <td>
-                    <span className="badge">{location.permalink}</span>
-                  </td>
-                  <td>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className={
-                          showForm && editingId === location.id
-                            ? "btn btn-small"
-                            : "btn btn-secondary btn-small"
-                        }
-                        disabled={
-                          (showForm && editingId !== location.id) ||
-                          (editingId === location.id &&
-                            (saving || uploading))
-                        }
-                        onClick={() => {
-                          if (showForm && editingId === location.id) {
-                            (
-                              document.getElementById(
-                                "location-form",
-                              ) as HTMLFormElement | null
-                            )?.requestSubmit();
-                            return;
-                          }
-                          startEdit(location);
+                <Fragment key={location.id}>
+                  <tr>
+                    <td>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.75rem",
                         }}
                       >
-                        {showForm && editingId === location.id
-                          ? saving
-                            ? "Opslaan…"
-                            : "Opslaan"
-                          : "Bewerken"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        onClick={() => void onDelete(location.id)}
-                      >
-                        Verwijderen
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                        {location.imageUrl ? (
+                          <img
+                            src={location.imageUrl}
+                            alt=""
+                            style={{
+                              width: 40,
+                              height: 40,
+                              objectFit: "cover",
+                              borderRadius: 6,
+                              border: "1px solid var(--line)",
+                            }}
+                          />
+                        ) : null}
+                        <span>{location.name}</span>
+                      </div>
+                    </td>
+                    <td>{location.address}</td>
+                    <td>
+                      <span className="badge">{location.permalink}</span>
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className={
+                            showForm && editingId === location.id
+                              ? "btn btn-small"
+                              : "btn btn-secondary btn-small"
+                          }
+                          disabled={
+                            (showForm &&
+                              Boolean(editingId) &&
+                              editingId !== location.id) ||
+                            (editingId === location.id &&
+                              (saving || uploading))
+                          }
+                          onClick={() => {
+                            if (showForm && editingId === location.id) {
+                              (
+                                document.getElementById(
+                                  "location-form-edit",
+                                ) as HTMLFormElement | null
+                              )?.requestSubmit();
+                              return;
+                            }
+                            startEdit(location);
+                          }}
+                        >
+                          {showForm && editingId === location.id
+                            ? saving
+                              ? "Opslaan…"
+                              : "Opslaan"
+                            : "Bewerken"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() => void onDelete(location.id)}
+                        >
+                          Verwijderen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {showForm && editingId === location.id ? (
+                    <tr className="table-row-expand">
+                      <td colSpan={tableColSpan}>
+                        <form
+                          id="location-form-edit"
+                          className="table-expand-panel stack"
+                          onSubmit={onSubmit}
+                        >
+                          {renderLocationFormFields("edit")}
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
 
-        {showForm ? (
-          <form id="location-form" className="drawer stack" onSubmit={onSubmit}>
-            <h2>{editingId ? "Locatie bewerken" : "Nieuwe locatie"}</h2>
-
-            <div className="form-grid two">
-              <label>
-                Naam
-                <input
-                  value={form.name}
-                  onChange={(e) => {
-                    const name = e.target.value;
-                    setForm((prev) => ({
-                      ...prev,
-                      name,
-                      permalink: permalinkTouched
-                        ? prev.permalink
-                        : slugify(name),
-                    }));
-                  }}
-                  required
-                />
-              </label>
-              <label>
-                Permalink
-                <input
-                  value={form.permalink}
-                  onChange={(e) => {
-                    setPermalinkTouched(true);
-                    setForm((prev) => ({
-                      ...prev,
-                      permalink: e.target.value,
-                    }));
-                  }}
-                  required
-                />
-              </label>
-              <label>
-                Adres
-                <input
-                  value={form.address}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, address: e.target.value }))
-                  }
-                  required
-                />
-              </label>
-              <label>
-                Google Maps link
-                <input
-                  type="url"
-                  value={form.googleMapsUrl}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      googleMapsUrl: e.target.value,
-                    }))
-                  }
-                  required
-                />
-              </label>
-              <label>
-                Telefoonnummer
-                <input
-                  value={form.phone}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, phone: e.target.value }))
-                  }
-                  required
-                />
-              </label>
-              <label>
-                E-mail
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, email: e.target.value }))
-                  }
-                  required
-                />
-              </label>
-            </div>
-
-            <label>
-              Afbeelding (optioneel)
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  void onImageChange(e.target.files?.[0] ?? null)
-                }
-              />
-            </label>
-            {uploading ? <p className="muted">Afbeelding uploaden…</p> : null}
-            {form.imageUrl ? (
-              <img
-                src={form.imageUrl}
-                alt="Locatie"
-                style={{
-                  width: 120,
-                  height: 80,
-                  objectFit: "cover",
-                  borderRadius: 8,
-                  border: "1px solid var(--line)",
-                }}
-              />
-            ) : null}
-
-            <div className="actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowForm(false)}
-              >
-                Annuleren
-              </button>
-              <button
-                type="submit"
-                className="btn"
-                disabled={saving || uploading}
-              >
-                {saving ? "Opslaan…" : "Opslaan"}
-              </button>
-            </div>
+        {showForm && !editingId ? (
+          <form
+            id="location-form-create"
+            className="drawer stack"
+            onSubmit={onSubmit}
+          >
+            {renderLocationFormFields("create")}
           </form>
         ) : null}
       </div>

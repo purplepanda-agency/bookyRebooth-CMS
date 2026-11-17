@@ -99,6 +99,12 @@ export const SALESFORCE_WEBHOOK_PAYLOAD: WebhookPayload = {
   GDPR: "1",
 };
 
+export type WebhookStepResult = {
+  name: string;
+  slug: string;
+  type: string;
+};
+
 export type WebhookContext = {
   webhookName: string;
   entityName: string;
@@ -128,7 +134,31 @@ export type WebhookContext = {
     currentVehicle: string;
     extraInfo: string;
   };
+  /**
+   * Dynamische stapresultaten: resultstep1, resultstep2, …
+   * `{{resultstep1}}` → name; `{{resultstep1.slug}}` / `.type` ook beschikbaar.
+   */
+  [resultStepKey: `resultstep${number}`]: WebhookStepResult | undefined;
 };
+
+export function buildResultStepContext(
+  stepResults:
+    | Array<{ index: number; type: string; name: string; slug: string }>
+    | null
+    | undefined,
+): Record<`resultstep${number}`, WebhookStepResult> {
+  const out: Record<string, WebhookStepResult> = {};
+  for (const result of stepResults ?? []) {
+    const index = Number(result.index);
+    if (!Number.isInteger(index) || index < 1) continue;
+    out[`resultstep${index}`] = {
+      name: result.name,
+      slug: result.slug,
+      type: result.type,
+    };
+  }
+  return out as Record<`resultstep${number}`, WebhookStepResult>;
+}
 
 export function buildBookingCurrentUrl(
   publicBaseUrl: string,
@@ -163,6 +193,15 @@ export function interestVehicleNewUsedFromCategorySlug(slug: string): string {
   return "";
 }
 
+function stringifyContextLeaf(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.name === "string") return record.name;
+  }
+  return String(value);
+}
+
 function getContextValue(context: WebhookContext, path: string): string {
   const parts = path.split(".").filter(Boolean);
   let current: unknown = context;
@@ -170,8 +209,7 @@ function getContextValue(context: WebhookContext, path: string): string {
     if (current == null || typeof current !== "object") return "";
     current = (current as Record<string, unknown>)[part];
   }
-  if (current == null) return "";
-  return String(current);
+  return stringifyContextLeaf(current);
 }
 
 function interpolateString(value: string, context: WebhookContext): string {

@@ -11,9 +11,8 @@ import type {
   ProductSet,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { WebhookPayloadEditor } from "../components/WebhookPayloadEditor";
 import {
-  cloneDefaultWebhookPayload,
-  cloneSalesforceWebhookPayload,
   createEmptyWebhook,
   formatWebhookPayloadJson,
   normalizeWebhooksFromConfig,
@@ -264,6 +263,9 @@ export function FlowBuilderPage() {
   const [entitySlug, setEntitySlug] = useState(
     user?.entities?.[0]?.slug || "global",
   );
+  const [entityName, setEntityName] = useState(
+    user?.entities?.[0]?.name || "",
+  );
   const [uploadingFeatured, setUploadingFeatured] = useState(false);
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [confirmationStep, setConfirmationStep] =
@@ -304,6 +306,132 @@ export function FlowBuilderPage() {
     [categories],
   );
 
+  const webhookFlowSteps = useMemo(
+    () =>
+      steps.map((step, index) => {
+        let title = stepTitle(step.type);
+        let sampleName = `Keuze stap ${index + 1}`;
+        let sampleSlug = `stap-${index + 1}`;
+
+        if (step.type === "FREE_CHOICE") {
+          const first = step.config.options.find((option) => option.name.trim());
+          title = "Vrije keuze";
+          if (first) {
+            sampleName = first.name.trim();
+            sampleSlug = first.slug.trim() || sampleSlug;
+          }
+        } else if (step.type === "PRODUCT_SET") {
+          title = step.config.title.trim() || "Product set";
+          const set = productSets.find(
+            (item) => item.id === step.config.productSetId,
+          );
+          const firstProduct = set?.products.find((product) =>
+            product.name.trim(),
+          );
+          if (firstProduct) {
+            sampleName = firstProduct.name.trim();
+            sampleSlug = firstProduct.name
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, "");
+          } else if (step.config.allowNoProduct && step.config.noProductTitle.trim()) {
+            sampleName = step.config.noProductTitle.trim();
+            sampleSlug = "geen-product";
+          }
+        } else if (step.type === "LOCATIONS") {
+          title = step.config.title.trim() || "Locaties";
+          const firstId = step.config.locationIds[0];
+          const first = locations.find((location) => location.id === firstId);
+          if (first) {
+            sampleName = first.name;
+            sampleSlug = first.permalink || sampleSlug;
+          }
+        } else if (step.type === "CATEGORIES") {
+          title = step.config.title.trim() || "Categorieën";
+          const firstId = step.config.categoryIds[0];
+          const first = categories.find((category) => category.id === firstId);
+          if (first) {
+            sampleName = first.name;
+            sampleSlug = first.slug || sampleSlug;
+          }
+        } else if (step.type === "SELLERS_AGENDA") {
+          title = "Agenda";
+          sampleName = "20/11/2026 10:00–10:30";
+          sampleSlug = "2026-11-20_1000_1030";
+        }
+
+        return {
+          type: step.type,
+          title,
+          sampleName,
+          sampleSlug,
+        };
+      }),
+    [steps, locations, categories, productSets],
+  );
+
+  const webhookSampleExtras = useMemo(() => {
+    let location: {
+      id: string;
+      name: string;
+      permalink: string;
+      address: string;
+    } | null = null;
+    let category: { id: string; name: string; slug: string } | null = null;
+    let productName: string | null = null;
+
+    for (const step of steps) {
+      if (step.type === "LOCATIONS") {
+        const ids = step.config.locationIds;
+        const match = ids
+          .map((locationId) => locations.find((item) => item.id === locationId))
+          .find(Boolean);
+        if (match) {
+          location = {
+            id: match.id,
+            name: match.name,
+            permalink: match.permalink,
+            address: match.address,
+          };
+        }
+      }
+      if (step.type === "CATEGORIES") {
+        const ids = step.config.categoryIds;
+        const match = ids
+          .map((categoryId) => categories.find((item) => item.id === categoryId))
+          .find(Boolean);
+        if (match) {
+          category = {
+            id: match.id,
+            name: match.name,
+            slug: match.slug,
+          };
+        }
+      }
+      if (step.type === "PRODUCT_SET" && !productName) {
+        const set = productSets.find(
+          (item) => item.id === step.config.productSetId,
+        );
+        const firstProduct = set?.products.find((product) =>
+          product.name.trim(),
+        );
+        if (firstProduct) {
+          productName = firstProduct.name.trim();
+        }
+      }
+    }
+
+    return {
+      entityName: entityName || undefined,
+      flowName: name || undefined,
+      flowSlug: slug || undefined,
+      location,
+      category,
+      productName,
+    };
+  }, [steps, locations, categories, productSets, entityName, name, slug]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -322,6 +450,7 @@ export function FlowBuilderPage() {
         setFeaturedImage(flow.featuredImage);
         setActive(flow.active);
         setEntitySlug(flow.entity?.slug || "global");
+        setEntityName(flow.entity?.name || "");
 
         const productSetsData = await api<{ productSets: ProductSet[] }>(
           `/product-sets?entityId=${encodeURIComponent(flow.entityId)}`,
@@ -1041,8 +1170,8 @@ export function FlowBuilderPage() {
                 <strong>Webhooks</strong>
                 <p className="muted" style={{ margin: "0.25rem 0 0" }}>
                   Na een succesvolle booking wordt de JSON naar elk endpoint
-                  gestuurd. Gebruik <code>{"{{veld}}"}</code> voor dynamische
-                  waarden.
+                  gestuurd. Gebruik het <code>{"{ }"}</code>-icoon in Data (JSON) om variabelen
+                  zoals <code>{"{{resultstep1.name}}"}</code> in te voegen.
                 </p>
               </div>
               <button
@@ -1135,61 +1264,22 @@ export function FlowBuilderPage() {
                           spellCheck={false}
                         />
                       </label>
-                      <label>
-                        Data (JSON)
-                        <textarea
-                          className="code-field"
-                          rows={18}
-                          value={
-                            webhookPayloadTexts[webhook.id] ??
-                            formatWebhookPayloadJson(webhook.payload)
-                          }
-                          onChange={(e) =>
-                            setWebhookPayloadTexts((prev) => ({
-                              ...prev,
-                              [webhook.id]: e.target.value,
-                            }))
-                          }
-                          spellCheck={false}
-                        />
-                      </label>
-                      <div
-                        className="actions"
-                        style={{
-                          justifyContent: "flex-start",
-                          flexWrap: "wrap",
-                          gap: "0.5rem",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-small"
-                          onClick={() =>
-                            setWebhookPayloadTexts((prev) => ({
-                              ...prev,
-                              [webhook.id]: formatWebhookPayloadJson(
-                                cloneDefaultWebhookPayload(),
-                              ),
-                            }))
-                          }
-                        >
-                          Standaard JSON
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-small"
-                          onClick={() =>
-                            setWebhookPayloadTexts((prev) => ({
-                              ...prev,
-                              [webhook.id]: formatWebhookPayloadJson(
-                                cloneSalesforceWebhookPayload(),
-                              ),
-                            }))
-                          }
-                        >
-                          Salesforce JSON
-                        </button>
-                      </div>
+                      <WebhookPayloadEditor
+                        webhookId={webhook.id}
+                        webhookName={webhook.name}
+                        value={
+                          webhookPayloadTexts[webhook.id] ??
+                          formatWebhookPayloadJson(webhook.payload)
+                        }
+                        onChange={(next) =>
+                          setWebhookPayloadTexts((prev) => ({
+                            ...prev,
+                            [webhook.id]: next,
+                          }))
+                        }
+                        flowSteps={webhookFlowSteps}
+                        sampleExtras={webhookSampleExtras}
+                      />
                     </div>
                   </div>
                 ))}

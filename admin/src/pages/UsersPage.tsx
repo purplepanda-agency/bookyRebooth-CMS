@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
 import Select from "react-select";
 import { api } from "../api/client";
 import type { Role, User } from "../api/types";
@@ -51,6 +51,7 @@ export function UsersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const tableColSpan = 5;
 
   // Superadmin: full catalog. Admin: only entities they are assigned to.
   // Never expose the superadmin catalog to a scoped admin account.
@@ -133,6 +134,12 @@ export function UsersPage() {
     setShowForm(true);
   }
 
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
   function resolveEntityIdsForSave(existing: User | undefined) {
     if (form.role === "SUPER_ADMIN") return [];
 
@@ -173,11 +180,18 @@ export function UsersPage() {
 
     try {
       if (editingId) {
+        const patchBody = isSuper
+          ? {
+              role: form.role,
+              entityIds,
+              ...(form.password.trim()
+                ? { password: form.password.trim() }
+                : {}),
+            }
+          : { entityIds };
         await api(`/users/${editingId}`, {
           method: "PATCH",
-          body: JSON.stringify(
-            isSuper ? { role: form.role, entityIds } : { entityIds },
-          ),
+          body: JSON.stringify(patchBody),
         });
       } else {
         const payload = isSuper
@@ -199,9 +213,7 @@ export function UsersPage() {
         });
       }
 
-      setShowForm(false);
-      setEditingId(null);
-      setForm(emptyForm);
+      closeForm();
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
@@ -215,6 +227,143 @@ export function UsersPage() {
   const editingSelf = editingId === user?.id;
   const activeEntityName =
     selectedEntity?.name ?? fixedEntity?.name ?? assignableEntities[0]?.name;
+
+  async function onDelete(item: User) {
+    if (!isSuper) return;
+    if (item.id === user?.id) {
+      setError("Je kunt jezelf niet verwijderen");
+      return;
+    }
+    if (!window.confirm(`Gebruiker “${item.email}” verwijderen?`)) return;
+    setError(null);
+    try {
+      await api(`/users/${item.id}`, { method: "DELETE" });
+      if (editingId === item.id) closeForm();
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verwijderen mislukt");
+    }
+  }
+
+  function renderUserFormFields(mode: "create" | "edit") {
+    return (
+      <>
+        <h2>
+          {mode === "edit" ? "Gebruiker bewerken" : "Nieuwe gebruiker"}
+        </h2>
+        {!isSuper && !showEntityPicker && activeEntityName ? (
+          <p className="muted" style={{ margin: 0 }}>
+            {mode === "edit" ? "Blijft gekoppeld aan" : "Wordt toegevoegd aan"}{" "}
+            <strong>{activeEntityName}</strong> als admin.
+          </p>
+        ) : null}
+        <div className="form-grid two">
+          <label>
+            E-mail
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, email: e.target.value }))
+              }
+              required
+              disabled={mode === "edit"}
+            />
+          </label>
+          {mode === "create" || isSuper ? (
+            <label>
+              {mode === "edit" ? "Nieuw wachtwoord" : "Wachtwoord"}
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, password: e.target.value }))
+                }
+                minLength={mode === "create" ? 8 : undefined}
+                pattern={
+                  mode === "create" || form.password
+                    ? "(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,}"
+                    : undefined
+                }
+                title="Minimaal 8 tekens, met hoofdletter, kleine letter, cijfer en speciaal teken"
+                required={mode === "create"}
+                placeholder={
+                  mode === "edit" ? "Leeg laten om niet te wijzigen" : undefined
+                }
+                autoComplete="new-password"
+              />
+            </label>
+          ) : null}
+          {mode === "create" || (isSuper && mode === "edit") ? (
+            <p className="muted" style={{ margin: 0, gridColumn: "1 / -1" }}>
+              {mode === "edit"
+                ? "Laat leeg om het wachtwoord te behouden. Nieuwe wachtwoorden: minimaal 8 tekens, met hoofdletter, kleine letter, cijfer en speciaal teken."
+                : "Minimaal 8 tekens, met hoofdletter, kleine letter, cijfer en speciaal teken."}
+            </p>
+          ) : null}
+          {isSuper ? (
+            <label>
+              Rol
+              <select
+                value={form.role}
+                disabled={editingSelf}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    role: e.target.value as Role,
+                    entityIds:
+                      e.target.value === "SUPER_ADMIN" ? [] : prev.entityIds,
+                  }))
+                }
+              >
+                <option value="ADMIN">Admin</option>
+                <option value="SUPER_ADMIN">Super admin</option>
+              </select>
+            </label>
+          ) : null}
+          {showEntityPicker ? (
+            <label style={{ gridColumn: "1 / -1" }}>
+              Entiteiten
+              <Select<SelectOption, true>
+                isMulti
+                classNamePrefix="rs"
+                options={entityOptions}
+                value={entityOptions.filter((option) =>
+                  form.entityIds.includes(option.value),
+                )}
+                onChange={(selected) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    entityIds: selected.map((option) => option.value),
+                  }))
+                }
+                placeholder="Selecteer entiteiten…"
+                noOptionsMessage={() => "Geen entiteiten"}
+              />
+            </label>
+          ) : null}
+        </div>
+        {form.role === "SUPER_ADMIN" ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Een super admin heeft toegang tot alle entiteiten en kan later
+            extra beheerfuncties krijgen.
+          </p>
+        ) : null}
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={closeForm}
+          >
+            Annuleren
+          </button>
+          <button type="submit" className="btn" disabled={saving}>
+            {saving ? "Opslaan…" : "Opslaan"}
+          </button>
+        </div>
+      </>
+    );
+  }
 
   return (
     <div>
@@ -256,155 +405,113 @@ export function UsersPage() {
             </thead>
             <tbody>
               {users.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.email}</td>
-                  <td>
-                    <span className="badge">{roleLabel[item.role]}</span>
-                  </td>
-                  <td>
-                    {item.role === "SUPER_ADMIN" ? (
-                      <span className="muted">Alle entiteiten</span>
-                    ) : item.entities.length === 0 ? (
-                      "—"
-                    ) : (
+                <Fragment key={item.id}>
+                  <tr>
+                    <td>{item.email}</td>
+                    <td>
+                      <span className="badge">{roleLabel[item.role]}</span>
+                    </td>
+                    <td>
+                      {item.role === "SUPER_ADMIN" ? (
+                        <span className="muted">Alle entiteiten</span>
+                      ) : item.entities.length === 0 ? (
+                        "—"
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "0.35rem",
+                          }}
+                        >
+                          {item.entities.map((entity) => (
+                            <span key={entity.id} className="badge">
+                              {entity.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td>{formatLastLogin(item.lastLoggedInAt)}</td>
+                    <td>
                       <div
                         style={{
                           display: "flex",
                           flexWrap: "wrap",
                           gap: "0.35rem",
+                          justifyContent: "flex-end",
                         }}
                       >
-                        {item.entities.map((entity) => (
-                          <span key={entity.id} className="badge">
-                            {entity.name}
-                          </span>
-                        ))}
+                        <button
+                          type="button"
+                          className={
+                            showForm && editingId === item.id
+                              ? "btn btn-small"
+                              : "btn btn-secondary btn-small"
+                          }
+                          disabled={
+                            (showForm &&
+                              Boolean(editingId) &&
+                              editingId !== item.id) ||
+                            (editingId === item.id && saving)
+                          }
+                          onClick={() => {
+                            if (showForm && editingId === item.id) {
+                              (
+                                document.getElementById(
+                                  "user-form-edit",
+                                ) as HTMLFormElement | null
+                              )?.requestSubmit();
+                              return;
+                            }
+                            openEditForm(item);
+                          }}
+                        >
+                          {showForm && editingId === item.id
+                            ? saving
+                              ? "Opslaan…"
+                              : "Opslaan"
+                            : "Bewerken"}
+                        </button>
+                        {isSuper && item.id !== user?.id ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            disabled={saving}
+                            onClick={() => void onDelete(item)}
+                          >
+                            Verwijderen
+                          </button>
+                        ) : null}
                       </div>
-                    )}
-                  </td>
-                  <td>{formatLastLogin(item.lastLoggedInAt)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-small"
-                      onClick={() => openEditForm(item)}
-                    >
-                      Bewerken
-                    </button>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {showForm && editingId === item.id ? (
+                    <tr className="table-row-expand">
+                      <td colSpan={tableColSpan}>
+                        <form
+                          id="user-form-edit"
+                          className="table-expand-panel stack"
+                          onSubmit={onSubmit}
+                        >
+                          {renderUserFormFields("edit")}
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
 
-        {showForm ? (
-          <form className="drawer stack" onSubmit={onSubmit}>
-            <h2>{editingId ? "Gebruiker bewerken" : "Nieuwe gebruiker"}</h2>
-            {!isSuper && !showEntityPicker && activeEntityName ? (
-              <p className="muted" style={{ margin: 0 }}>
-                {editingId ? "Blijft gekoppeld aan" : "Wordt toegevoegd aan"}{" "}
-                <strong>{activeEntityName}</strong> als admin.
-              </p>
-            ) : null}
-            <div className="form-grid two">
-              <label>
-                E-mail
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, email: e.target.value }))
-                  }
-                  required
-                  disabled={Boolean(editingId)}
-                />
-              </label>
-              {editingId ? null : (
-                <label>
-                  Wachtwoord
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, password: e.target.value }))
-                    }
-                    minLength={8}
-                    pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}"
-                    title="Minimaal 8 tekens, met hoofdletter, kleine letter, cijfer en speciaal teken"
-                    required
-                  />
-                </label>
-              )}
-              {editingId ? null : (
-                <p className="muted" style={{ margin: 0, gridColumn: "1 / -1" }}>
-                  Minimaal 8 tekens, met hoofdletter, kleine letter, cijfer en
-                  speciaal teken.
-                </p>
-              )}
-              {isSuper ? (
-                <label>
-                  Rol
-                  <select
-                    value={form.role}
-                    disabled={editingSelf}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        role: e.target.value as Role,
-                        entityIds:
-                          e.target.value === "SUPER_ADMIN" ? [] : prev.entityIds,
-                      }))
-                    }
-                  >
-                    <option value="ADMIN">Admin</option>
-                    <option value="SUPER_ADMIN">Super admin</option>
-                  </select>
-                </label>
-              ) : null}
-              {showEntityPicker ? (
-                <label style={{ gridColumn: "1 / -1" }}>
-                  Entiteiten
-                  <Select<SelectOption, true>
-                    isMulti
-                    classNamePrefix="rs"
-                    options={entityOptions}
-                    value={entityOptions.filter((option) =>
-                      form.entityIds.includes(option.value),
-                    )}
-                    onChange={(selected) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        entityIds: selected.map((option) => option.value),
-                      }))
-                    }
-                    placeholder="Selecteer entiteiten…"
-                    noOptionsMessage={() => "Geen entiteiten"}
-                  />
-                </label>
-              ) : null}
-            </div>
-            {form.role === "SUPER_ADMIN" ? (
-              <p className="muted" style={{ margin: 0 }}>
-                Een super admin heeft toegang tot alle entiteiten en kan later
-                extra beheerfuncties krijgen.
-              </p>
-            ) : null}
-            <div className="actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingId(null);
-                }}
-              >
-                Annuleren
-              </button>
-              <button type="submit" className="btn" disabled={saving}>
-                {saving ? "Opslaan…" : "Opslaan"}
-              </button>
-            </div>
+        {showForm && !editingId ? (
+          <form
+            id="user-form-create"
+            className="drawer stack"
+            onSubmit={onSubmit}
+          >
+            {renderUserFormFields("create")}
           </form>
         ) : null}
       </div>

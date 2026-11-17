@@ -36,7 +36,14 @@ export const updateUserSchema = z
   .object({
     role: roleSchema.optional(),
     entityIds: z.array(z.string().cuid()).optional(),
+    password: strongPasswordSchema.optional(),
   })
-  .refine((data) => data.role !== undefined || data.entityIds !== undefined, {
-    message: "Niets om bij te werken",
-  });
+  .refine(
+    (data) =>
+      data.role !== undefined ||
+      data.entityIds !== undefined ||
+      data.password !== undefined,
+    {
+      message: "Niets om bij te werken",
+    },
+  );

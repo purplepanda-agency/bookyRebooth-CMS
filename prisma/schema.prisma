@@ -277,6 +277,7 @@ model ActivityLog {
   userEmail  String
   userRole   Role
   action     String   @db.VarChar(32)
+  entryType  String?  @db.VarChar(64)
   summary    String   @db.VarChar(500)
   detail     String?  @db.VarChar(500)
   entityId   String?

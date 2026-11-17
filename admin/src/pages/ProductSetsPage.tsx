@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
 import Select from "react-select";
 import { Navigate } from "react-router-dom";
 import { api, uploadMedia } from "../api/client";
@@ -79,6 +79,7 @@ export function ProductSetsPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const tableColSpan = 4;
 
   const entityOptions = useMemo<SelectOption[]>(
     () =>
@@ -163,6 +164,13 @@ export function ProductSetsPage() {
       ),
     );
     setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setExpandedKeys(new Set());
   }
 
   function setExpanded(key: string, expanded: boolean) {
@@ -253,10 +261,7 @@ export function ProductSetsPage() {
         });
       }
 
-      setShowForm(false);
-      setForm(emptyForm);
-      setEditingId(null);
-      setExpandedKeys(new Set());
+      closeForm();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
@@ -274,6 +279,219 @@ export function ProductSetsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verwijderen mislukt");
     }
+  }
+
+  function renderProductSetFormFields(mode: "create" | "edit") {
+    return (
+      <>
+        <h2>
+          {mode === "edit" ? "Product set bewerken" : "Nieuwe product set"}
+        </h2>
+
+        <label>
+          Naam van de set
+          <input
+            value={form.name}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, name: e.target.value }))
+            }
+            required
+          />
+        </label>
+
+        <label>
+          Beschikbaar voor entiteiten
+          <Select
+            isMulti
+            classNamePrefix="rs"
+            options={entityOptions}
+            value={entityOptions.filter((option) =>
+              form.entityIds.includes(option.value),
+            )}
+            onChange={(selected) =>
+              setForm((prev) => ({
+                ...prev,
+                entityIds: selected.map((option) => option.value),
+              }))
+            }
+            placeholder="Selecteer entiteiten…"
+            noOptionsMessage={() => "Geen entiteiten"}
+          />
+        </label>
+        <p className="muted" style={{ margin: 0 }}>
+          Alleen geselecteerde entiteiten zien deze set in de flow builder.
+        </p>
+
+        <div className="stack">
+          <h3>Producten</h3>
+
+          {form.products.map((product, index) => {
+            const expanded = expandedKeys.has(product.key);
+
+            return (
+              <div
+                key={product.key}
+                className={`repeater-item ${expanded ? "is-expanded" : "is-collapsed"}`}
+              >
+                {expanded ? (
+                  <div className="panel-body stack">
+                    <div className="repeater-toolbar">
+                      <span className="muted">Product {index + 1}</span>
+                      <div className="repeater-actions">
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Inklappen"
+                          aria-label="Inklappen"
+                          onClick={() => collapseProduct(product.key)}
+                        >
+                          <IconCheck />
+                        </button>
+                        {form.products.length > 1 ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-small"
+                            onClick={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                products: prev.products.filter(
+                                  (item) => item.key !== product.key,
+                                ),
+                              }))
+                            }
+                          >
+                            Verwijderen
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="form-grid two">
+                      <label>
+                        Productnaam
+                        <input
+                          value={product.name}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              products: prev.products.map((item) =>
+                                item.key === product.key
+                                  ? { ...item, name: e.target.value }
+                                  : item,
+                              ),
+                            }))
+                          }
+                          required
+                        />
+                      </label>
+                      <label>
+                        Foto
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) =>
+                            void onPhotoChange(
+                              product.key,
+                              e.target.files?.[0] ?? null,
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    {uploadingKey === product.key ? (
+                      <p className="muted">Foto uploaden…</p>
+                    ) : null}
+
+                    {product.photoUrl ? (
+                      <img
+                        src={product.photoUrl}
+                        alt={product.name || `Product ${index + 1}`}
+                        className="repeater-preview"
+                      />
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="repeater-collapsed">
+                    <div className="repeater-collapsed-main">
+                      {product.photoUrl ? (
+                        <img
+                          src={product.photoUrl}
+                          alt={product.name}
+                          className="repeater-thumb"
+                        />
+                      ) : (
+                        <div className="repeater-thumb placeholder" />
+                      )}
+                      <span className="repeater-collapsed-name">
+                        {product.name || `Product ${index + 1}`}
+                      </span>
+                    </div>
+                    <div className="repeater-actions">
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="Bewerken"
+                        aria-label="Bewerken"
+                        onClick={() => setExpanded(product.key, true)}
+                      >
+                        <IconPencil />
+                      </button>
+                      {form.products.length > 1 ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              products: prev.products.filter(
+                                (item) => item.key !== product.key,
+                              ),
+                            }))
+                          }
+                        >
+                          Verwijderen
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div className="repeater-add">
+            <button
+              type="button"
+              className="add-product-btn"
+              onClick={addProduct}
+            >
+              <span className="add-product-circle">
+                <IconPlus />
+              </span>
+              <span>Voeg product toe</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={closeForm}
+          >
+            Annuleren
+          </button>
+          <button
+            type="submit"
+            className="btn"
+            disabled={saving || uploadingKey !== null}
+          >
+            {saving ? "Opslaan…" : "Opslaan"}
+          </button>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -314,8 +532,9 @@ export function ProductSetsPage() {
             </thead>
             <tbody>
               {productSets.map((set) => (
-                <tr key={set.id}>
-                  <td>{set.name}</td>
+                <Fragment key={set.id}>
+                  <tr>
+                    <td>{set.name}</td>
                   <td>
                     {(set.entities ?? []).length === 0 ? (
                       <span className="muted">Geen toegang</span>
@@ -372,7 +591,9 @@ export function ProductSetsPage() {
                             : "btn btn-secondary btn-small"
                         }
                         disabled={
-                          (showForm && editingId !== set.id) ||
+                          (showForm &&
+                            Boolean(editingId) &&
+                            editingId !== set.id) ||
                           (editingId === set.id &&
                             (saving || uploadingKey !== null))
                         }
@@ -380,7 +601,7 @@ export function ProductSetsPage() {
                           if (showForm && editingId === set.id) {
                             (
                               document.getElementById(
-                                "product-set-form",
+                                "product-set-form-edit",
                               ) as HTMLFormElement | null
                             )?.requestSubmit();
                             return;
@@ -404,223 +625,32 @@ export function ProductSetsPage() {
                     </div>
                   </td>
                 </tr>
+                  {showForm && editingId === set.id ? (
+                    <tr className="table-row-expand">
+                      <td colSpan={tableColSpan}>
+                        <form
+                          id="product-set-form-edit"
+                          className="table-expand-panel stack"
+                          onSubmit={onSubmit}
+                        >
+                          {renderProductSetFormFields("edit")}
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
 
-        {showForm ? (
+        {showForm && !editingId ? (
           <form
-            id="product-set-form"
+            id="product-set-form-create"
             className="drawer stack"
             onSubmit={onSubmit}
           >
-            <h2>
-              {editingId ? "Product set bewerken" : "Nieuwe product set"}
-            </h2>
-
-            <label>
-              Naam van de set
-              <input
-                value={form.name}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, name: e.target.value }))
-                }
-                required
-              />
-            </label>
-
-            <label>
-              Beschikbaar voor entiteiten
-              <Select
-                isMulti
-                classNamePrefix="rs"
-                options={entityOptions}
-                value={entityOptions.filter((option) =>
-                  form.entityIds.includes(option.value),
-                )}
-                onChange={(selected) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    entityIds: selected.map((option) => option.value),
-                  }))
-                }
-                placeholder="Selecteer entiteiten…"
-                noOptionsMessage={() => "Geen entiteiten"}
-              />
-            </label>
-            <p className="muted" style={{ margin: 0 }}>
-              Alleen geselecteerde entiteiten zien deze set in de flow builder.
-            </p>
-
-            <div className="stack">
-              <h3>Producten</h3>
-
-              {form.products.map((product, index) => {
-                const expanded = expandedKeys.has(product.key);
-
-                return (
-                  <div
-                    key={product.key}
-                    className={`repeater-item ${expanded ? "is-expanded" : "is-collapsed"}`}
-                  >
-                    {expanded ? (
-                      <div className="panel-body stack">
-                        <div className="repeater-toolbar">
-                          <span className="muted">Product {index + 1}</span>
-                          <div className="repeater-actions">
-                            <button
-                              type="button"
-                              className="icon-btn"
-                              title="Inklappen"
-                              aria-label="Inklappen"
-                              onClick={() => collapseProduct(product.key)}
-                            >
-                              <IconCheck />
-                            </button>
-                            {form.products.length > 1 ? (
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-small"
-                                onClick={() =>
-                                  setForm((prev) => ({
-                                    ...prev,
-                                    products: prev.products.filter(
-                                      (item) => item.key !== product.key,
-                                    ),
-                                  }))
-                                }
-                              >
-                                Verwijderen
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="form-grid two">
-                          <label>
-                            Productnaam
-                            <input
-                              value={product.name}
-                              onChange={(e) =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  products: prev.products.map((item) =>
-                                    item.key === product.key
-                                      ? { ...item, name: e.target.value }
-                                      : item,
-                                  ),
-                                }))
-                              }
-                              required
-                            />
-                          </label>
-                          <label>
-                            Foto
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) =>
-                                void onPhotoChange(
-                                  product.key,
-                                  e.target.files?.[0] ?? null,
-                                )
-                              }
-                            />
-                          </label>
-                        </div>
-
-                        {uploadingKey === product.key ? (
-                          <p className="muted">Foto uploaden…</p>
-                        ) : null}
-
-                        {product.photoUrl ? (
-                          <img
-                            src={product.photoUrl}
-                            alt={product.name || `Product ${index + 1}`}
-                            className="repeater-preview"
-                          />
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="repeater-collapsed">
-                        <div className="repeater-collapsed-main">
-                          {product.photoUrl ? (
-                            <img
-                              src={product.photoUrl}
-                              alt={product.name}
-                              className="repeater-thumb"
-                            />
-                          ) : (
-                            <div className="repeater-thumb placeholder" />
-                          )}
-                          <span className="repeater-collapsed-name">
-                            {product.name || `Product ${index + 1}`}
-                          </span>
-                        </div>
-                        <div className="repeater-actions">
-                          <button
-                            type="button"
-                            className="icon-btn"
-                            title="Bewerken"
-                            aria-label="Bewerken"
-                            onClick={() => setExpanded(product.key, true)}
-                          >
-                            <IconPencil />
-                          </button>
-                          {form.products.length > 1 ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-small"
-                              onClick={() =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  products: prev.products.filter(
-                                    (item) => item.key !== product.key,
-                                  ),
-                                }))
-                              }
-                            >
-                              Verwijderen
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              <div className="repeater-add">
-                <button
-                  type="button"
-                  className="add-product-btn"
-                  onClick={addProduct}
-                >
-                  <span className="add-product-circle">
-                    <IconPlus />
-                  </span>
-                  <span>Voeg product toe</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowForm(false)}
-              >
-                Annuleren
-              </button>
-              <button
-                type="submit"
-                className="btn"
-                disabled={saving || uploadingKey !== null}
-              >
-                {saving ? "Opslaan…" : "Opslaan"}
-              </button>
-            </div>
+            {renderProductSetFormFields("create")}
           </form>
         ) : null}
       </div>

@@ -104,6 +104,7 @@ type NameMaps = {
 
 export type ActivityEntryDraft = {
   action: ActivityOperation;
+  entryType: string | null;
   summary: string;
   detail: string | null;
   entityId: string | null;
@@ -113,16 +114,6 @@ export type ActivityEntryDraft = {
 
 function unique(values: string[]) {
   return [...new Set(values.filter(Boolean))];
-}
-
-function quoted(label: string) {
-  return `«${label.replaceAll("«", "").replaceAll("»", "")}»`;
-}
-
-function verb(action: ActivityOperation) {
-  if (action === "create") return "aangemaakt";
-  if (action === "delete") return "verwijderd";
-  return "bijgewerkt";
 }
 
 function sameAction(items: ActivityChange[]): ActivityOperation {
@@ -145,17 +136,24 @@ function detailText(fields: string[]) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function noun(model: string, count: number) {
-  const pair = NOUN[model];
-  if (!pair) return model;
-  return count === 1 ? pair[0] : pair[1];
+function entryTypeLabel(model: string) {
+  return NOUN[model]?.[1] ?? model;
+}
+
+function formatLabels(labels: string[]) {
+  const shown = labels.slice(0, 4);
+  const extra = labels.length > 4 ? ` en ${labels.length - 4} meer` : "";
+  return shown.length ? `${shown.join(", ")}${extra}` : null;
 }
 
 function describeOne(change: ActivityChange): {
   action: ActivityOperation;
+  entryType: string;
   summary: string;
   detail: string | null;
 } {
+  const entryType = entryTypeLabel(change.model);
+
   if (
     change.model === "User" &&
     change.operation === "update" &&
@@ -164,21 +162,16 @@ function describeOne(change: ActivityChange): {
   ) {
     return {
       action: "update",
-      summary: change.label
-        ? `Wachtwoord van ${quoted(change.label)} gewijzigd`
-        : "Wachtwoord gewijzigd",
-      detail: null,
+      entryType,
+      summary: change.label || "Wachtwoord gewijzigd",
+      detail: "Wachtwoord",
     };
   }
 
-  const title = noun(change.model, 1);
-  const summary = change.label
-    ? `${title} ${quoted(change.label)} ${verb(change.operation)}`
-    : `${title} ${verb(change.operation)}`;
-
   return {
     action: change.operation,
-    summary,
+    entryType,
+    summary: change.label || "—",
     detail: change.operation === "update" ? detailText(change.fields) : null,
   };
 }
@@ -190,14 +183,13 @@ function describeGroup(model: string, items: ActivityChange[]) {
   const labels = unique(
     items.flatMap((item) => (item.label ? [item.label] : [])),
   );
-  const shown = labels.slice(0, 4).map(quoted);
-  const extra = labels.length > 4 ? ` en ${labels.length - 4} meer` : "";
-  const summary = shown.length
-    ? `${noun(model, items.length)} ${verb(action)}: ${shown.join(", ")}${extra}`
-    : `${items.length} ${noun(model, items.length).toLowerCase()} ${verb(action)}`;
+  const summary =
+    formatLabels(labels) ??
+    `${items.length} ${entryTypeLabel(model).toLowerCase()}`;
 
   return {
     action,
+    entryType: entryTypeLabel(model),
     summary,
     detail: action === "update" ? detailText(items.flatMap((item) => item.fields)) : null,
   };
@@ -280,11 +272,14 @@ export function summarizeActivity(
   const changes = collapse(labeled);
 
   let action: ActivityOperation = "update";
+  let entryType: string | null = null;
   let summary = "Wijziging opgeslagen";
   let detail: string | null = null;
 
   if (isFlowReorder(changes)) {
-    summary = `Volgorde van ${changes.length} flows aangepast`;
+    entryType = entryTypeLabel("Flow");
+    summary = `Volgorde (${changes.length})`;
+    detail = "Volgorde";
   } else {
     const groups = new Map<string, ActivityChange[]>();
     for (const change of changes) {
@@ -297,6 +292,7 @@ export function summarizeActivity(
     action = parts.every((part) => part.action === parts[0]?.action)
       ? (parts[0]?.action ?? "update")
       : "update";
+    entryType = unique(parts.map((part) => part.entryType)).join(", ") || null;
     summary = parts.map((part) => part.summary).join(" · ") || summary;
     const details = unique(parts.flatMap((part) => (part.detail ? [part.detail] : [])));
     detail = details.length ? details.join(" · ") : null;
@@ -322,6 +318,7 @@ export function summarizeActivity(
 
   return {
     action,
+    entryType: entryType ? entryType.slice(0, 64) : null,
     summary: summary.slice(0, 500),
     detail: detail ? detail.slice(0, 500) : null,
     entityId: entityIds.length === 1 ? entityIds[0]! : null,
@@ -367,6 +364,7 @@ export async function flushActivity(user: AuthUser, changes: ActivityChange[]) {
       userEmail: user.email,
       userRole: user.role,
       action: entry.action,
+      entryType: entry.entryType,
       summary: entry.summary,
       detail: entry.detail,
       entityId: entry.entityId,
