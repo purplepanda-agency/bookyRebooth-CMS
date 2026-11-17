@@ -8,10 +8,17 @@ export type WebhookPayloadValue =
 
 export type WebhookPayload = { [key: string]: WebhookPayloadValue };
 
-/** Standaard Make-/webhook-payload met alle bookingvelden als placeholders. */
+/** Standaard webhook-payload met alle bookingvelden als placeholders. */
+export const DEFAULT_FLOW_PAYLOAD: WebhookPayload = {
+  name: "{{flow.name}}",
+  slug: "{{flow.slug}}",
+};
+
 export const DEFAULT_WEBHOOK_PAYLOAD: WebhookPayload = {
   webhookName: "{{webhookName}}",
   entityName: "{{entityName}}",
+  flow: { ...DEFAULT_FLOW_PAYLOAD },
+  interestvehiclenewused: "{{interestvehiclenewused}}",
   date: "{{date}}",
   start: "{{start}}",
   end: "{{end}}",
@@ -43,9 +50,62 @@ export const DEFAULT_WEBHOOK_PAYLOAD: WebhookPayload = {
   },
 };
 
+/** HTML-opmerkingenblok voor o.a. Salesforce-payload. */
+export const DEFAULT_OPMERKINGEN_TEMPLATE = [
+  "<strong>Klant</strong>",
+  "Naam: {{customer.fullName}}",
+  "Voornaam: {{customer.firstName}}",
+  "Achternaam: {{customer.lastName}}",
+  "Telefoon: {{customer.phone}}",
+  "E-mail: {{customer.email}}",
+  "Adres: {{customer.address}}",
+  "Huidig voertuig: {{customer.currentVehicle}}",
+  "Extra info: {{customer.extraInfo}}",
+  "",
+  "<strong>Afspraak</strong>",
+  "Datum: {{date}}",
+  "Start: {{start}}",
+  "Einde: {{end}}",
+  "Product: {{productName}}",
+  "Verkoper: {{seller.name}}",
+  "",
+  "<strong>Locatie / categorie</strong>",
+  "Locatie: {{location.name}}",
+  "Adres locatie: {{location.address}}",
+  "Categorie: {{category.name}}",
+].join("<br>");
+
+/** Salesforce / Websolve lead-payload. */
+export const SALESFORCE_WEBHOOK_PAYLOAD: WebhookPayload = {
+  url: "{{currentUrl}}",
+  aanhef: "",
+  voornaam: "{{customer.firstName}}",
+  achternaam: "{{customer.lastName}}",
+  email: "{{customer.email}}",
+  telefoonnummer: "{{customer.phone}}",
+  opmerkingen: DEFAULT_OPMERKINGEN_TEMPLATE,
+  concessie: "{{location.permalink}}",
+  brand: "{{flow.name}}",
+  interestvehiclebrand: "{{flow.name}}",
+  interestvehiclemodel: "{{productName}}",
+  interestvehiclenewused: "{{interestvehiclenewused}}",
+  interestvehiclestate: "",
+  herkomst: "{{currentUrl}}",
+  campaign: "Contact - {{currentUrl}} - SQL",
+  LeadContextWholesale: "Contact - {{currentUrl}} - SQL",
+  websolverequesttype: "contact_request",
+  sas: "sales",
+  aanvraagtype: "Afspraak boekingstool",
+  GDPR: "1",
+};
+
 export type WebhookContext = {
   webhookName: string;
   entityName: string;
+  currentUrl: string;
+  flow: { name: string; slug: string };
+  /** Vertaling van categorieslug: "new" | "used" | "". */
+  interestvehiclenewused: string;
   date: string;
   start: string;
   end: string;
@@ -69,6 +129,39 @@ export type WebhookContext = {
     extraInfo: string;
   };
 };
+
+export function buildBookingCurrentUrl(
+  publicBaseUrl: string,
+  flowSlug?: string | null,
+): string {
+  const base = publicBaseUrl.trim().replace(/\/$/, "");
+  const slug = (flowSlug ?? "").trim().toLowerCase();
+  if (!base) return slug ? `/flow/${slug}` : "";
+  return slug ? `${base}/flow/${slug}` : base;
+}
+
+/** categorieslug → new/used voor Make-veld interestvehiclenewused. */
+export function interestVehicleNewUsedFromCategorySlug(slug: string): string {
+  const value = slug.trim().toLowerCase();
+  if (
+    value === "nieuw" ||
+    value === "new" ||
+    value.startsWith("nieuw")
+  ) {
+    return "new";
+  }
+  if (
+    value === "tweedehands" ||
+    value === "used" ||
+    value === "occasion" ||
+    value === "occasions" ||
+    value.includes("tweedehands") ||
+    value.includes("occasion")
+  ) {
+    return "used";
+  }
+  return "";
+}
 
 function getContextValue(context: WebhookContext, path: string): string {
   const parts = path.split(".").filter(Boolean);
@@ -107,15 +200,28 @@ function renderValue(
   return value;
 }
 
+/** Zorg dat bestaande templates ook flow + interestvehiclenewused meekrijgen. */
+export function withFlowPlaceholders(
+  template: WebhookPayload | null | undefined,
+): WebhookPayload {
+  const source =
+    template && typeof template === "object" && !Array.isArray(template)
+      ? { ...template }
+      : { ...DEFAULT_WEBHOOK_PAYLOAD };
+  if (!("flow" in source)) {
+    source.flow = { ...DEFAULT_FLOW_PAYLOAD };
+  }
+  if (!("interestvehiclenewused" in source)) {
+    source.interestvehiclenewused = "{{interestvehiclenewused}}";
+  }
+  return source;
+}
+
 export function renderWebhookPayload(
   template: WebhookPayload | null | undefined,
   context: WebhookContext,
 ): WebhookPayload {
-  const source =
-    template && typeof template === "object" && !Array.isArray(template)
-      ? template
-      : DEFAULT_WEBHOOK_PAYLOAD;
-  return renderValue(source, context) as WebhookPayload;
+  return renderValue(withFlowPlaceholders(template), context) as WebhookPayload;
 }
 
 export function isWebhookPayload(
@@ -129,7 +235,7 @@ export type SendWebhookResult =
   | { ok: false; error: string; status?: number };
 
 /**
- * POST JSON naar een externe webhook (Make, Zapier, …).
+ * POST JSON naar een externe webhook-URL.
  * Timeouts na 10s; faalt nooit stil — caller logt MAKE_ERROR.
  */
 export async function sendWebhook(
@@ -149,12 +255,14 @@ export async function sendWebhook(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Accept: "application/json",
+        Accept: "*/*",
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
+      redirect: "follow",
     });
 
+    // Make Custom Webhook antwoordt vaak 200; soms 2xx met lege body.
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       const detail = body.trim().slice(0, 200);

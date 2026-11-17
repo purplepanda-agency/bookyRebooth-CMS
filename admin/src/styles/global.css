@@ -773,6 +773,24 @@ textarea:focus {
 .flow-page > .panel {
   flex: 1;
   min-height: 0;
+  overflow: auto;
+}
+
+.webhook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.webhook-card {
+  padding: 1rem 1.25rem;
+  min-width: 0;
+}
+
+.webhook-card textarea.code-field {
+  min-height: 20rem;
+  max-height: 32rem;
 }
 
 .flow-canvas {

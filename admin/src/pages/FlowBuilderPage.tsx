@@ -13,7 +13,11 @@ import type {
 import { useAuth } from "../auth/AuthContext";
 import {
   cloneDefaultWebhookPayload,
+  cloneSalesforceWebhookPayload,
+  createEmptyWebhook,
   formatWebhookPayloadJson,
+  normalizeWebhooksFromConfig,
+  type FlowWebhookConfig,
 } from "../lib/webhookDefaults";
 
 type DraftStep = FlowStep & { key: string };
@@ -21,7 +25,7 @@ type ConfirmationDraft = Extract<FlowStep, { type: "CONFIRMATION" }> & {
   key: string;
 };
 type SlideMode = "pick" | "configure";
-type BuilderTab = "builder" | "settings";
+type BuilderTab = "builder" | "settings" | "webhooks";
 type SelectOption = { value: string; label: string };
 
 function normalizeStep(step: FlowStep): FlowStep {
@@ -60,19 +64,13 @@ function normalizeStep(step: FlowStep): FlowStep {
     };
   }
   if (step.type === "CONFIRMATION") {
-    const payload =
-      step.config.webhookPayload &&
-      typeof step.config.webhookPayload === "object" &&
-      !Array.isArray(step.config.webhookPayload)
-        ? step.config.webhookPayload
-        : cloneDefaultWebhookPayload();
     return {
       ...step,
       config: {
         title: step.config.title?.trim() || "Persoonlijke gegevens",
-        webhookUrl: step.config.webhookUrl?.trim() || "",
-        webhookName: step.config.webhookName?.trim() || "",
-        webhookPayload: payload,
+        webhooks: normalizeWebhooksFromConfig(
+          step.config as unknown as Record<string, unknown>,
+        ),
       },
     };
   }
@@ -87,9 +85,7 @@ function createConfirmationStep(existing?: FlowStep): ConfirmationDraft {
           type: "CONFIRMATION",
           config: {
             title: "Persoonlijke gegevens",
-            webhookUrl: "",
-            webhookName: "",
-            webhookPayload: cloneDefaultWebhookPayload(),
+            webhooks: [],
           },
         } satisfies Extract<FlowStep, { type: "CONFIRMATION" }>);
   return {
@@ -99,6 +95,15 @@ function createConfirmationStep(existing?: FlowStep): ConfirmationDraft {
         ? existing.id
         : crypto.randomUUID(),
   };
+}
+
+function payloadTextsFromWebhooks(webhooks: FlowWebhookConfig[]) {
+  return Object.fromEntries(
+    webhooks.map((webhook) => [
+      webhook.id,
+      formatWebhookPayloadJson(webhook.payload),
+    ]),
+  );
 }
 
 const BLOCKS: Array<{
@@ -192,9 +197,7 @@ function createDraftStep(type: FlowStepType): DraftStep {
         type,
         config: {
           title: "Persoonlijke gegevens",
-          webhookUrl: "",
-          webhookName: "",
-          webhookPayload: cloneDefaultWebhookPayload(),
+          webhooks: [],
         },
       };
   }
@@ -275,9 +278,9 @@ export function FlowBuilderPage() {
   const [slideMode, setSlideMode] = useState<SlideMode>("pick");
   const [draftStep, setDraftStep] = useState<DraftStep | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [webhookPayloadText, setWebhookPayloadText] = useState(() =>
-    formatWebhookPayloadJson(cloneDefaultWebhookPayload()),
-  );
+  const [webhookPayloadTexts, setWebhookPayloadTexts] = useState<
+    Record<string, string>
+  >({});
   const [uploadingOptionIndex, setUploadingOptionIndex] = useState<
     number | null
   >(null);
@@ -329,7 +332,11 @@ export function FlowBuilderPage() {
         const existingConfirmation = loadedSteps.find(
           (step) => step.type === "CONFIRMATION",
         );
-        setConfirmationStep(createConfirmationStep(existingConfirmation));
+        const nextConfirmation = createConfirmationStep(existingConfirmation);
+        setConfirmationStep(nextConfirmation);
+        setWebhookPayloadTexts(
+          payloadTextsFromWebhooks(nextConfirmation.config.webhooks),
+        );
         setSteps(
           loadedSteps
             .filter((step) => step.type !== "CONFIRMATION")
@@ -374,28 +381,16 @@ export function FlowBuilderPage() {
   }
 
   function openConfigure(type: FlowStepType) {
-    const next = createDraftStep(type);
-    setDraftStep(next);
-    if (next.type === "CONFIRMATION") {
-      setWebhookPayloadText(
-        formatWebhookPayloadJson(next.config.webhookPayload),
-      );
-    }
+    setDraftStep(createDraftStep(type));
     setSlideMode("configure");
   }
 
   function openEdit(step: DraftStep) {
-    const normalized = {
+    setEditingKey(step.key);
+    setDraftStep({
       ...structuredClone(normalizeStep(step)),
       key: step.key,
-    } as DraftStep;
-    setEditingKey(step.key);
-    setDraftStep(normalized);
-    if (normalized.type === "CONFIRMATION") {
-      setWebhookPayloadText(
-        formatWebhookPayloadJson(normalized.config.webhookPayload),
-      );
-    }
+    } as DraftStep);
     setSlideMode("configure");
     setSlideOpen(true);
   }
@@ -407,50 +402,81 @@ export function FlowBuilderPage() {
     setEditingKey(null);
   }
 
+  function updateConfirmationWebhooks(
+    updater: (webhooks: FlowWebhookConfig[]) => FlowWebhookConfig[],
+  ) {
+    setConfirmationStep((prev) => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        webhooks: updater(prev.config.webhooks),
+      },
+    }));
+  }
+
+  function resolveWebhooksForSave():
+    | { ok: true; webhooks: FlowWebhookConfig[] }
+    | { ok: false; error: string } {
+    const webhooks: FlowWebhookConfig[] = [];
+
+    for (const [index, webhook] of confirmationStep.config.webhooks.entries()) {
+      const url = webhook.url.trim();
+      const name = webhook.name.trim();
+      const label = name || `Webhook ${index + 1}`;
+
+      if (!url && !name) continue;
+
+      if (!url) {
+        return { ok: false, error: `${label}: vul een webhook-URL in` };
+      }
+
+      try {
+        // eslint-disable-next-line no-new
+        new URL(url);
+      } catch {
+        return { ok: false, error: `${label}: ongeldige webhook-URL` };
+      }
+
+      let payload: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(
+          webhookPayloadTexts[webhook.id] ??
+            formatWebhookPayloadJson(webhook.payload),
+        );
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return {
+            ok: false,
+            error: `${label}: data moet een JSON-object zijn ({ … })`,
+          };
+        }
+        payload = parsed as Record<string, unknown>;
+      } catch {
+        return { ok: false, error: `${label}: data is geen geldige JSON` };
+      }
+
+      webhooks.push({
+        id: webhook.id || crypto.randomUUID(),
+        name,
+        url,
+        payload,
+      });
+    }
+
+    return { ok: true, webhooks };
+  }
+
   function confirmDraftStep() {
     if (!draftStep) return;
 
     if (draftStep.type === "CONFIRMATION") {
       const title = draftStep.config.title.trim() || "Persoonlijke gegevens";
-      const webhookUrl = draftStep.config.webhookUrl.trim();
-      const webhookName = draftStep.config.webhookName.trim();
-
-      if (webhookUrl) {
-        try {
-          // eslint-disable-next-line no-new
-          new URL(webhookUrl);
-        } catch {
-          setError("Ongeldige webhook-URL");
-          return;
-        }
-      }
-
-      let webhookPayload: Record<string, unknown>;
-      try {
-        const parsed: unknown = JSON.parse(webhookPayloadText);
-        if (
-          !parsed ||
-          typeof parsed !== "object" ||
-          Array.isArray(parsed)
-        ) {
-          setError("Webhook-data moet een JSON-object zijn ({ … })");
-          return;
-        }
-        webhookPayload = parsed as Record<string, unknown>;
-      } catch {
-        setError("Webhook-data is geen geldige JSON");
-        return;
-      }
-
       setConfirmationStep({
         id: draftStep.id ?? confirmationStep.id,
         type: "CONFIRMATION",
         key: confirmationStep.key,
         config: {
           title,
-          webhookUrl,
-          webhookName,
-          webhookPayload,
+          webhooks: confirmationStep.config.webhooks,
         },
       });
       setError(null);
@@ -557,6 +583,13 @@ export function FlowBuilderPage() {
       return;
     }
 
+    const resolvedWebhooks = resolveWebhooksForSave();
+    if (!resolvedWebhooks.ok) {
+      setError(resolvedWebhooks.error);
+      setActiveTab("webhooks");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     try {
@@ -580,11 +613,12 @@ export function FlowBuilderPage() {
                 title:
                   confirmationStep.config.title.trim() ||
                   "Persoonlijke gegevens",
-                webhookUrl: confirmationStep.config.webhookUrl.trim(),
-                webhookName: confirmationStep.config.webhookName.trim(),
+                webhooks: resolvedWebhooks.webhooks,
+                // Spiegel eerste webhook naar legacy-velden (compat oudere API)
+                webhookUrl: resolvedWebhooks.webhooks[0]?.url ?? "",
+                webhookName: resolvedWebhooks.webhooks[0]?.name ?? "",
                 webhookPayload:
-                  confirmationStep.config.webhookPayload ??
-                  cloneDefaultWebhookPayload(),
+                  resolvedWebhooks.webhooks[0]?.payload ?? null,
               },
             },
           ],
@@ -595,7 +629,11 @@ export function FlowBuilderPage() {
       const savedConfirmation = savedSteps.find(
         (step) => step.type === "CONFIRMATION",
       );
-      setConfirmationStep(createConfirmationStep(savedConfirmation));
+      const nextConfirmation = createConfirmationStep(savedConfirmation);
+      setConfirmationStep(nextConfirmation);
+      setWebhookPayloadTexts(
+        payloadTextsFromWebhooks(nextConfirmation.config.webhooks),
+      );
       setSteps(
         savedSteps
           .filter((step) => step.type !== "CONFIRMATION")
@@ -776,6 +814,15 @@ export function FlowBuilderPage() {
         >
           Flow settings
         </button>
+        <button
+          type="button"
+          role="tab"
+          className={activeTab === "webhooks" ? "tab active" : "tab"}
+          aria-selected={activeTab === "webhooks"}
+          onClick={() => setActiveTab("webhooks")}
+        >
+          Webhooks
+        </button>
       </div>
 
       {activeTab === "builder" ? (
@@ -877,12 +924,13 @@ export function FlowBuilderPage() {
                     </p>
                     <div className="flow-step-labels">
                       <span className="flow-step-label">Vast laatste blok</span>
-                      {confirmationStep.config.webhookUrl ? (
+                      {confirmationStep.config.webhooks.length > 0 ? (
                         <span className="flow-step-label">
-                          Webhook
-                          {confirmationStep.config.webhookName
-                            ? `: ${confirmationStep.config.webhookName}`
-                            : ""}
+                          {confirmationStep.config.webhooks.length === 1
+                            ? confirmationStep.config.webhooks[0]?.name
+                              ? `Webhook: ${confirmationStep.config.webhooks[0].name}`
+                              : "1 webhook"
+                            : `${confirmationStep.config.webhooks.length} webhooks`}
                         </span>
                       ) : null}
                     </div>
@@ -903,7 +951,9 @@ export function FlowBuilderPage() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : null}
+
+      {activeTab === "settings" ? (
         <div className="panel">
           <div className="panel-body stack" style={{ maxWidth: 520 }}>
             <label>
@@ -974,7 +1024,180 @@ export function FlowBuilderPage() {
             ) : null}
           </div>
         </div>
-      )}
+      ) : null}
+
+      {activeTab === "webhooks" ? (
+        <div className="panel">
+          <div className="panel-body stack">
+            <div
+              className="actions"
+              style={{
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "1rem",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <strong>Webhooks</strong>
+                <p className="muted" style={{ margin: "0.25rem 0 0" }}>
+                  Na een succesvolle booking wordt de JSON naar elk endpoint
+                  gestuurd. Gebruik <code>{"{{veld}}"}</code> voor dynamische
+                  waarden.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={() => {
+                  const next = createEmptyWebhook();
+                  updateConfirmationWebhooks((webhooks) => [...webhooks, next]);
+                  setWebhookPayloadTexts((prev) => ({
+                    ...prev,
+                    [next.id]: formatWebhookPayloadJson(next.payload),
+                  }));
+                }}
+              >
+                + Webhook
+              </button>
+            </div>
+
+            {confirmationStep.config.webhooks.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Nog geen webhooks. Klik op “+ Webhook” om er een toe te voegen.
+              </p>
+            ) : (
+              <div className="webhook-grid">
+                {confirmationStep.config.webhooks.map((webhook, index) => (
+                  <div
+                    key={webhook.id}
+                    className="settings-block webhook-card"
+                  >
+                    <div className="stack">
+                      <div
+                        className="actions"
+                        style={{
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <strong>Webhook {index + 1}</strong>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Verwijderen"
+                          aria-label={`Webhook ${index + 1} verwijderen`}
+                          onClick={() => {
+                            updateConfirmationWebhooks((webhooks) =>
+                              webhooks.filter((item) => item.id !== webhook.id),
+                            );
+                            setWebhookPayloadTexts((prev) => {
+                              const next = { ...prev };
+                              delete next[webhook.id];
+                              return next;
+                            });
+                          }}
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                      <label>
+                        Naam
+                        <input
+                          value={webhook.name}
+                          onChange={(e) => {
+                            const name = e.target.value;
+                            updateConfirmationWebhooks((webhooks) =>
+                              webhooks.map((item) =>
+                                item.id === webhook.id
+                                  ? { ...item, name }
+                                  : item,
+                              ),
+                            );
+                          }}
+                          placeholder="bijv. CRM sync"
+                        />
+                      </label>
+                      <label>
+                        URL
+                        <input
+                          value={webhook.url}
+                          onChange={(e) => {
+                            const url = e.target.value;
+                            updateConfirmationWebhooks((webhooks) =>
+                              webhooks.map((item) =>
+                                item.id === webhook.id
+                                  ? { ...item, url }
+                                  : item,
+                              ),
+                            );
+                          }}
+                          placeholder="https://…"
+                          spellCheck={false}
+                        />
+                      </label>
+                      <label>
+                        Data (JSON)
+                        <textarea
+                          className="code-field"
+                          rows={18}
+                          value={
+                            webhookPayloadTexts[webhook.id] ??
+                            formatWebhookPayloadJson(webhook.payload)
+                          }
+                          onChange={(e) =>
+                            setWebhookPayloadTexts((prev) => ({
+                              ...prev,
+                              [webhook.id]: e.target.value,
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </label>
+                      <div
+                        className="actions"
+                        style={{
+                          justifyContent: "flex-start",
+                          flexWrap: "wrap",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() =>
+                            setWebhookPayloadTexts((prev) => ({
+                              ...prev,
+                              [webhook.id]: formatWebhookPayloadJson(
+                                cloneDefaultWebhookPayload(),
+                              ),
+                            }))
+                          }
+                        >
+                          Standaard JSON
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-small"
+                          onClick={() =>
+                            setWebhookPayloadTexts((prev) => ({
+                              ...prev,
+                              [webhook.id]: formatWebhookPayloadJson(
+                                cloneSalesforceWebhookPayload(),
+                              ),
+                            }))
+                          }
+                        >
+                          Salesforce JSON
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {slideOpen ? (
         <>
@@ -1483,7 +1706,8 @@ export function FlowBuilderPage() {
                     <div className="stack">
                       <div className="info-box">
                         Dit blok staat altijd vast onderaan de flow. Pas hier de
-                        titel en optionele webhook (Make, Zapier, …) aan.
+                        titel boven het bevestigingsformulier aan. Webhooks
+                        configureer je in de tab Webhooks.
                       </div>
                       <label>
                         Formuliertitel
@@ -1501,83 +1725,6 @@ export function FlowBuilderPage() {
                           placeholder="Persoonlijke gegevens"
                         />
                       </label>
-
-                      <div
-                        className="settings-block"
-                        style={{ padding: "1rem 1.25rem" }}
-                      >
-                        <div className="stack">
-                          <strong>Webhook (Make)</strong>
-                          <p className="muted" style={{ margin: 0 }}>
-                            Na een succesvolle booking wordt deze JSON naar je
-                            Make-scenario gestuurd. Gebruik{" "}
-                            <code>{"{{veld}}"}</code> voor dynamische waarden.
-                          </p>
-                          <label>
-                            Webhooknaam
-                            <input
-                              value={draftStep.config.webhookName}
-                              onChange={(e) =>
-                                setDraftStep({
-                                  ...draftStep,
-                                  config: {
-                                    ...draftStep.config,
-                                    webhookName: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder="bijv. Make – nieuwe afspraak"
-                            />
-                          </label>
-                          <label>
-                            Webhook-URL
-                            <input
-                              value={draftStep.config.webhookUrl}
-                              onChange={(e) =>
-                                setDraftStep({
-                                  ...draftStep,
-                                  config: {
-                                    ...draftStep.config,
-                                    webhookUrl: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder="https://hook.eu1.make.com/…"
-                              spellCheck={false}
-                            />
-                          </label>
-                          <label>
-                            Data (JSON)
-                            <textarea
-                              className="code-field"
-                              rows={18}
-                              value={webhookPayloadText}
-                              onChange={(e) =>
-                                setWebhookPayloadText(e.target.value)
-                              }
-                              spellCheck={false}
-                            />
-                          </label>
-                          <div
-                            className="actions"
-                            style={{ justifyContent: "flex-start" }}
-                          >
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() =>
-                                setWebhookPayloadText(
-                                  formatWebhookPayloadJson(
-                                    cloneDefaultWebhookPayload(),
-                                  ),
-                                )
-                              }
-                            >
-                              Herstel standaardvelden
-                            </button>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   ) : null}
 

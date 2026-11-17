@@ -14,6 +14,8 @@ import {
 } from "../../lib/sendgrid.js";
 import { env } from "../../config/env.js";
 import {
+  buildBookingCurrentUrl,
+  interestVehicleNewUsedFromCategorySlug,
   isWebhookPayload,
   renderWebhookPayload,
   sendWebhook,
@@ -50,41 +52,166 @@ type ConfirmationWebhookConfig = {
   webhookPayload: WebhookPayload | null;
 };
 
-async function loadConfirmationWebhookConfig(
+function parseWebhookEntries(
+  record: Record<string, unknown>,
+): ConfirmationWebhookConfig[] {
+  const list = record.webhooks;
+  if (Array.isArray(list)) {
+    const fromList = list
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === "object" && !Array.isArray(item)),
+      )
+      .map((item) => {
+        const url =
+          typeof item.url === "string"
+            ? item.url.trim()
+            : typeof item.webhookUrl === "string"
+              ? item.webhookUrl.trim()
+              : "";
+        const name =
+          typeof item.name === "string"
+            ? item.name.trim()
+            : typeof item.webhookName === "string"
+              ? item.webhookName.trim()
+              : "";
+        const payloadRaw = item.payload ?? item.webhookPayload;
+        return {
+          webhookUrl: url,
+          webhookName: name,
+          webhookPayload: isWebhookPayload(payloadRaw)
+            ? (payloadRaw as WebhookPayload)
+            : null,
+        };
+      })
+      .filter((item) => Boolean(item.webhookUrl));
+    if (fromList.length > 0) return fromList;
+  }
+
+  // Legacy single-webhook config
+  const webhookUrl =
+    typeof record.webhookUrl === "string" ? record.webhookUrl.trim() : "";
+  if (!webhookUrl) return [];
+
+  return [
+    {
+      webhookUrl,
+      webhookName:
+        typeof record.webhookName === "string" ? record.webhookName.trim() : "",
+      webhookPayload: isWebhookPayload(record.webhookPayload)
+        ? (record.webhookPayload as WebhookPayload)
+        : null,
+    },
+  ];
+}
+
+function dedupeWebhooks(
+  entries: ConfirmationWebhookConfig[],
+): ConfirmationWebhookConfig[] {
+  const seen = new Set<string>();
+  const out: ConfirmationWebhookConfig[] = [];
+  for (const entry of entries) {
+    const key = entry.webhookUrl.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
+type FlowWebhookBundle = {
+  flow: { name: string; slug: string };
+  webhooks: ConfirmationWebhookConfig[];
+};
+
+async function loadConfirmationWebhooks(
   entityId: string,
   flowSlug?: string | null,
-): Promise<ConfirmationWebhookConfig | null> {
-  const slug = flowSlug?.trim().toLowerCase();
-  if (!slug) return null;
+): Promise<FlowWebhookBundle> {
+  const slug = flowSlug?.trim().toLowerCase() || null;
+  const emptyFlow = { name: "", slug: slug || "" };
 
-  const flow = await prisma.flow.findFirst({
-    where: { entityId, slug, active: true },
-    select: {
-      steps: {
-        where: { type: "CONFIRMATION" },
-        take: 1,
-        select: { config: true },
+  if (slug) {
+    const flow = await prisma.flow.findFirst({
+      where: { entityId, slug },
+      select: {
+        name: true,
+        slug: true,
+        active: true,
+        steps: {
+          where: { type: "CONFIRMATION" },
+          take: 1,
+          select: { config: true },
+        },
       },
+    });
+
+    const flowInfo = flow
+      ? { name: flow.name, slug: flow.slug }
+      : emptyFlow;
+
+    const config = flow?.steps[0]?.config;
+    if (config && typeof config === "object" && !Array.isArray(config)) {
+      const entries = parseWebhookEntries(config as Record<string, unknown>);
+      if (entries.length > 0) {
+        return {
+          flow: flowInfo,
+          webhooks: dedupeWebhooks(entries),
+        };
+      }
+      console.warn(
+        `[booking] Geen webhook-URL in confirmation-config (flow=${slug}, active=${flow?.active ?? false})`,
+      );
+    } else {
+      console.warn(
+        `[booking] Geen confirmation-stap gevonden voor flow=${slug} entity=${entityId}`,
+      );
+    }
+
+    return { flow: flowInfo, webhooks: [] };
+  }
+
+  console.warn(
+    `[booking] flowSlug ontbreekt in booking-request; fallback op alle entity-webhooks`,
+  );
+
+  // Fallback: alle confirmation-stappen van deze entiteit (bv. oude TOOL zonder flowSlug)
+  const steps = await prisma.flowStep.findMany({
+    where: {
+      type: "CONFIRMATION",
+      flow: { entityId },
+    },
+    select: {
+      config: true,
+      flow: { select: { name: true, slug: true } },
     },
   });
 
-  const config = flow?.steps[0]?.config;
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return null;
+  const collected: ConfirmationWebhookConfig[] = [];
+  let fallbackFlow = emptyFlow;
+  for (const step of steps) {
+    const config = step.config;
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      continue;
+    }
+    const entries = parseWebhookEntries(config as Record<string, unknown>);
+    if (entries.length > 0 && !fallbackFlow.name) {
+      fallbackFlow = { name: step.flow.name, slug: step.flow.slug };
+    }
+    collected.push(...entries);
   }
 
-  const record = config as Record<string, unknown>;
-  const webhookUrl =
-    typeof record.webhookUrl === "string" ? record.webhookUrl.trim() : "";
-  if (!webhookUrl) return null;
-
-  const webhookName =
-    typeof record.webhookName === "string" ? record.webhookName.trim() : "";
-  const webhookPayload = isWebhookPayload(record.webhookPayload)
-    ? (record.webhookPayload as WebhookPayload)
-    : null;
-
-  return { webhookUrl, webhookName, webhookPayload };
+  const unique = dedupeWebhooks(collected);
+  if (unique.length === 0) {
+    console.warn(
+      `[booking] Geen webhooks geconfigureerd voor entity=${entityId}`,
+    );
+  } else {
+    console.info(
+      `[booking] ${unique.length} webhook(s) geladen via entity-fallback`,
+    );
+  }
+  return { flow: fallbackFlow, webhooks: unique };
 }
 
 export type CreateBookingResult = {
@@ -300,14 +427,30 @@ export async function createBooking(
       });
     }
 
-    const webhookConfig = await loadConfirmationWebhookConfig(
+    const webhookBundle = await loadConfirmationWebhooks(
       input.entityId,
       input.flowSlug,
     );
-    if (webhookConfig) {
+    if (webhookBundle.webhooks.length === 0) {
+      console.warn(
+        `[booking] Geen webhooks om te versturen (entity=${input.entityId}, flowSlug=${input.flowSlug ?? "—"})`,
+      );
+    }
+    const webhookPublicBaseUrl = resolvePublicBaseUrl(input.publicBaseUrl);
+    const currentUrl = buildBookingCurrentUrl(
+      webhookPublicBaseUrl,
+      webhookBundle.flow.slug || input.flowSlug,
+    );
+
+    for (const webhookConfig of webhookBundle.webhooks) {
+      const categorySlug = availability.data.category.slug;
       const payload = renderWebhookPayload(webhookConfig.webhookPayload, {
         webhookName: webhookConfig.webhookName,
         entityName: input.entityName,
+        currentUrl,
+        flow: webhookBundle.flow,
+        interestvehiclenewused:
+          interestVehicleNewUsedFromCategorySlug(categorySlug),
         date: input.date,
         start: input.start,
         end: input.end,
@@ -325,7 +468,7 @@ export async function createBooking(
         category: {
           id: availability.data.category.id,
           name: availability.data.category.name,
-          slug: availability.data.category.slug,
+          slug: categorySlug,
         },
         customer: {
           firstName: input.customer.firstName.trim(),
@@ -339,20 +482,28 @@ export async function createBooking(
         },
       });
 
+      console.info(
+        `[booking] Webhook POST → ${webhookConfig.webhookName || webhookConfig.webhookUrl}`,
+      );
       const webhookResult = await sendWebhook(
         webhookConfig.webhookUrl,
         payload,
       );
       if (!webhookResult.ok) {
-        console.error("[booking] Webhook error:", webhookResult.error);
+        const label = webhookConfig.webhookName || webhookConfig.webhookUrl;
+        console.error("[booking] Webhook error:", label, webhookResult.error);
         trackEvent({
           type: "MAKE_ERROR",
           entityId: input.entityId,
           sellerId: chosen.sellerId,
           locationId: location.id,
           categoryId: availability.data.category.id,
-          message: webhookResult.error,
+          message: `${label}: ${webhookResult.error}`,
         });
+      } else {
+        console.info(
+          `[booking] Webhook OK (${webhookResult.status}) → ${webhookConfig.webhookName || webhookConfig.webhookUrl}`,
+        );
       }
     }
 

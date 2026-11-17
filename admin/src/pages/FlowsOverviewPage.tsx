@@ -186,7 +186,7 @@ export function FlowsOverviewPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Nieuwe flow</h1>
+          <h1>Flows</h1>
           <p>Overzicht van bookingflows voor jouw entiteit.</p>
         </div>
         <button

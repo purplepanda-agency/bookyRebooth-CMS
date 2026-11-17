@@ -33,7 +33,7 @@ export const publicCreateBookingSchema = z.object({
     .trim()
     .min(1)
     .max(120)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .transform((value) => value.toLowerCase())
     .optional(),
   privacyAccepted: z.literal(true),
   recaptchaToken: z.string().min(1).max(4000),

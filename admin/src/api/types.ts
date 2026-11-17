@@ -164,9 +164,12 @@ export type FlowStep =
       type: "CONFIRMATION";
       config: {
         title: string;
-        webhookUrl: string;
-        webhookName: string;
-        webhookPayload: Record<string, unknown>;
+        webhooks: Array<{
+          id: string;
+          name: string;
+          url: string;
+          payload: Record<string, unknown>;
+        }>;
       };
     };
 

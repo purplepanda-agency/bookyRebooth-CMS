@@ -100,7 +100,7 @@ export function AppShell() {
           <div className="nav-divider" aria-hidden="true" />
 
           <NavLink to="/new-flow" className={navClass}>
-            Nieuwe flow
+            Flows
           </NavLink>
           <NavLink to="/content-blocks" className={navClass}>
             Contentblokken

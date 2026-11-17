@@ -63,8 +63,7 @@ const sellersAgendaConfigSchema = z.object({}).strict();
 const webhookUrlSchema = z
   .string()
   .max(2000)
-  .optional()
-  .transform((value) => (value ?? "").trim())
+  .transform((value) => value.trim())
   .superRefine((value, ctx) => {
     if (!value) return;
     const parsed = z.string().url().safeParse(value);
@@ -76,20 +75,34 @@ const webhookUrlSchema = z
     }
   });
 
-const webhookPayloadSchema = z
-  .record(z.string(), z.unknown())
-  .optional()
-  .nullable();
+const webhookPayloadSchema = z.record(z.string(), z.unknown());
+
+const webhookEntrySchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+  name: z
+    .string()
+    .max(120)
+    .optional()
+    .transform((value) => (value ?? "").trim()),
+  url: webhookUrlSchema,
+  payload: webhookPayloadSchema.optional().nullable(),
+});
 
 const confirmationConfigSchema = z.object({
   title: stepTitleSchema,
-  webhookUrl: webhookUrlSchema,
+  webhooks: z.array(webhookEntrySchema).optional().default([]),
+  // Legacy single-webhook velden (spiegel van webhooks[0]) voor oudere booking-runners
+  webhookUrl: z
+    .string()
+    .max(2000)
+    .optional()
+    .transform((value) => (value ?? "").trim()),
   webhookName: z
     .string()
     .max(120)
     .optional()
     .transform((value) => (value ?? "").trim()),
-  webhookPayload: webhookPayloadSchema,
+  webhookPayload: webhookPayloadSchema.optional().nullable(),
 });
 
 const optionalStepId = z.string().cuid().optional();
