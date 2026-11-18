@@ -1491,7 +1491,7 @@ textarea:focus {
   --chart-success: #2766ab;
   --chart-failed: #c0392b;
   --chart-email: #e67e22;
-  --chart-make: #8e44ad;
+  --chart-webhook: #8e44ad;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1544,9 +1544,9 @@ textarea:focus {
   width: 1rem;
 }
 
-.stats-chart-swatch-make {
+.stats-chart-swatch-webhook {
   height: 0;
-  border-top: 2px solid var(--chart-make);
+  border-top: 2px solid var(--chart-webhook);
   border-radius: 0;
   width: 1rem;
 }
@@ -1604,8 +1604,8 @@ textarea:focus {
   stroke-linecap: round;
 }
 
-.stats-chart-line-make {
-  stroke: var(--chart-make);
+.stats-chart-line-webhook {
+  stroke: var(--chart-webhook);
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -1615,8 +1615,8 @@ textarea:focus {
   fill: var(--chart-email);
 }
 
-.stats-chart-dot-make {
-  fill: var(--chart-make);
+.stats-chart-dot-webhook {
+  fill: var(--chart-webhook);
 }
 
 .stats-breakdown-grid {

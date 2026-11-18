@@ -17,7 +17,7 @@ export type StatsDayMetrics = {
   success: number;
   failed: number;
   emailError: number;
-  makeError: number;
+  webhookError: number;
 };
 
 export type StatsOverview = {
@@ -29,14 +29,13 @@ export type StatsOverview = {
     notFound404: number;
     formSubmitError: number;
     emailError: number;
-    makeError: number;
-    makeComingSoon: false;
+    webhookError: number;
   };
   analytics: {
     successfulSubmissions: number;
     failedSubmissions: number;
     emailErrors: number;
-    makeErrors: number;
+    webhookErrors: number;
     metricsByDay: StatsDayMetrics[];
     bySeller: StatsBreakdownRow[];
     byLocation: StatsBreakdownRow[];
@@ -176,7 +175,12 @@ async function metricsByDaySeries(
 
   const counts = new Map<
     string,
-    { success: number; failed: number; emailError: number; makeError: number }
+    {
+      success: number;
+      failed: number;
+      emailError: number;
+      webhookError: number;
+    }
   >();
 
   for (const event of events) {
@@ -185,13 +189,13 @@ async function metricsByDaySeries(
       success: 0,
       failed: 0,
       emailError: 0,
-      makeError: 0,
+      webhookError: 0,
     };
 
     if (event.type === "FORM_SUBMIT_SUCCESS") bucket.success += 1;
     else if (event.type === "FORM_SUBMIT_ERROR") bucket.failed += 1;
     else if (event.type === "EMAIL_ERROR") bucket.emailError += 1;
-    else if (event.type === "MAKE_ERROR") bucket.makeError += 1;
+    else if (event.type === "MAKE_ERROR") bucket.webhookError += 1;
 
     counts.set(key, bucket);
   }
@@ -207,7 +211,7 @@ async function metricsByDaySeries(
       success: bucket?.success ?? 0,
       failed: bucket?.failed ?? 0,
       emailError: bucket?.emailError ?? 0,
-      makeError: bucket?.makeError ?? 0,
+      webhookError: bucket?.webhookError ?? 0,
     });
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -300,7 +304,8 @@ export async function getStatsOverview(input: {
   const successfulSubmissions = countOf(typeCounts, "FORM_SUBMIT_SUCCESS");
   const failedSubmissions = countOf(typeCounts, "FORM_SUBMIT_ERROR");
   const emailErrors = countOf(typeCounts, "EMAIL_ERROR");
-  const makeErrors = countOf(typeCounts, "MAKE_ERROR");
+  // DB enum blijft MAKE_ERROR (legacy); UI/API tonen dit als webhook-fouten.
+  const webhookErrors = countOf(typeCounts, "MAKE_ERROR");
 
   return {
     days,
@@ -311,14 +316,13 @@ export async function getStatsOverview(input: {
       notFound404: countOf(typeCounts, "NOT_FOUND_404"),
       formSubmitError: failedSubmissions,
       emailError: emailErrors,
-      makeError: makeErrors,
-      makeComingSoon: false,
+      webhookError: webhookErrors,
     },
     analytics: {
       successfulSubmissions,
       failedSubmissions,
       emailErrors,
-      makeErrors,
+      webhookErrors,
       metricsByDay,
       bySeller,
       byLocation,

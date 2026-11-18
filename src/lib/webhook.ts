@@ -274,7 +274,8 @@ export type SendWebhookResult =
 
 /**
  * POST JSON naar een externe webhook-URL.
- * Timeouts na 10s; faalt nooit stil — caller logt MAKE_ERROR.
+ * Timeouts na 10s; faalt nooit stil — caller logt analytics MAKE_ERROR
+ * (getoond als webhook-fouten in het dashboard).
  */
 export async function sendWebhook(
   url: string,
@@ -300,10 +301,10 @@ export async function sendWebhook(
       redirect: "follow",
     });
 
-    // Make Custom Webhook antwoordt vaak 200; soms 2xx met lege body.
+    // Externe webhooks (o.a. Make) antwoorden vaak 200; non-2xx = fout + body loggen.
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      const detail = body.trim().slice(0, 200);
+      const detail = body.trim().replace(/\s+/g, " ").slice(0, 400);
       return {
         ok: false,
         status: response.status,

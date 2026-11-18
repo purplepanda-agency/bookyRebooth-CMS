@@ -14,7 +14,7 @@ type DayMetrics = {
   success: number;
   failed: number;
   emailError: number;
-  makeError: number;
+  webhookError: number;
 };
 
 type StatsOverview = {
@@ -26,14 +26,13 @@ type StatsOverview = {
     notFound404: number;
     formSubmitError: number;
     emailError: number;
-    makeError: number;
-    makeComingSoon: boolean;
+    webhookError: number;
   };
   analytics: {
     successfulSubmissions: number;
     failedSubmissions: number;
     emailErrors: number;
-    makeErrors: number;
+    webhookErrors: number;
     metricsByDay: DayMetrics[];
     bySeller: BreakdownRow[];
     byLocation: BreakdownRow[];
@@ -75,7 +74,7 @@ function MetricsChart({
   const max = Math.max(
     1,
     ...series.map((row) =>
-      Math.max(row.success + row.failed, row.emailError, row.makeError),
+      Math.max(row.success + row.failed, row.emailError, row.webhookError),
     ),
   );
   const hasData = series.some(
@@ -83,7 +82,7 @@ function MetricsChart({
       row.success > 0 ||
       row.failed > 0 ||
       row.emailError > 0 ||
-      row.makeError > 0,
+      row.webhookError > 0,
   );
   const showEvery = series.length > 14 ? Math.ceil(series.length / 8) : 1;
 
@@ -135,8 +134,8 @@ function MetricsChart({
           E-mailfouten
         </span>
         <span className="stats-chart-legend-item">
-          <span className="stats-chart-swatch stats-chart-swatch-make" />
-          Make-fouten
+          <span className="stats-chart-swatch stats-chart-swatch-webhook" />
+          Webhook-fouten
         </span>
       </div>
 
@@ -148,7 +147,7 @@ function MetricsChart({
         <div
           className="stats-chart-body"
           role="img"
-          aria-label="Gestapelde staafgrafiek met lijnen voor e-mail- en Make-fouten"
+          aria-label="Gestapelde staafgrafiek met lijnen voor e-mail- en webhook-fouten"
         >
           <svg
             className="stats-chart-svg"
@@ -180,7 +179,7 @@ function MetricsChart({
                 `Gelukt: ${row.success}`,
                 `Mislukt: ${row.failed}`,
                 `E-mail: ${row.emailError}`,
-                `Make: ${row.makeError}`,
+                `Webhook: ${row.webhookError}`,
               ].join(" · ");
 
               return (
@@ -214,9 +213,9 @@ function MetricsChart({
               points={linePoints((row) => row.emailError)}
             />
             <polyline
-              className="stats-chart-line-make"
+              className="stats-chart-line-webhook"
               fill="none"
-              points={linePoints((row) => row.makeError)}
+              points={linePoints((row) => row.webhookError)}
             />
 
             {series.map((row, index) => (
@@ -230,10 +229,10 @@ function MetricsChart({
             ))}
             {series.map((row, index) => (
               <circle
-                key={`make-${row.date}`}
-                className="stats-chart-dot-make"
+                key={`webhook-${row.date}`}
+                className="stats-chart-dot-webhook"
                 cx={xCenter(index)}
-                cy={yValue(row.makeError)}
+                cy={yValue(row.webhookError)}
                 r={series.length > 20 ? 1.5 : 2.2}
               />
             ))}
@@ -460,16 +459,12 @@ export function HomePage() {
                       overview.health.emailError}
                   </strong>
                 </div>
-                <div
-                  className={`stats-card${overview.health.makeComingSoon ? " stats-card-muted" : ""}`}
-                >
-                  <span className="stats-card-label">Make-fouten</span>
+                <div className="stats-card">
+                  <span className="stats-card-label">Webhook-fouten</span>
                   <strong className="stats-card-value">
-                    {overview.analytics.makeErrors ?? overview.health.makeError}
+                    {overview.analytics.webhookErrors ??
+                      overview.health.webhookError}
                   </strong>
-                  {overview.health.makeComingSoon ? (
-                    <span className="stats-card-note">Coming soon</span>
-                  ) : null}
                 </div>
               </div>
 

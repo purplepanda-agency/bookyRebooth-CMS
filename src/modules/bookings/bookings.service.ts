@@ -582,6 +582,7 @@ export async function createBooking(
       if (!webhookResult.ok) {
         const label = webhookConfig.webhookName || webhookConfig.webhookUrl;
         console.error("[booking] Webhook error:", label, webhookResult.error);
+        // Analytics MAKE_ERROR → dashboard "Webhook-fouten" (paarse lijn).
         trackEvent({
           type: "MAKE_ERROR",
           entityId: input.entityId,
