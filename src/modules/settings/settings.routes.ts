@@ -7,6 +7,7 @@ import {
   toPublicCalendarConfig,
 } from "../../lib/calendar/resolve.js";
 import { encryptSecret } from "../../lib/secretCrypto.js";
+import { domainInUseError } from "../../lib/domainAvailability.js";
 import {
   updateCalendarSettingsSchema,
   updateContentSettingsSchema,
@@ -73,10 +74,17 @@ settingsRouter.patch("/domain", async (req, res, next) => {
       return;
     }
 
+    const domain = body.domain ? body.domain : null;
+    const domainError = await domainInUseError(domain, scope.entityId);
+    if (domainError) {
+      res.status(409).json({ error: domainError });
+      return;
+    }
+
     const entity = await prisma.entity.update({
       where: { id: scope.entityId },
       data: {
-        domain: body.domain ? body.domain : null,
+        domain,
         maintenanceMode: body.maintenanceMode,
       },
       select: entitySettingsSelect,

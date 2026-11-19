@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { requireRole } from "../../middleware/requireRole.js";
+import { domainInUseError } from "../../lib/domainAvailability.js";
 import { createEntitySchema, updateEntitySchema } from "./entities.schemas.js";
 
 export const entitiesRouter = Router();
@@ -62,12 +63,18 @@ entitiesRouter.get("/:id", async (req, res, next) => {
 entitiesRouter.post("/", async (req, res, next) => {
   try {
     const body = createEntitySchema.parse(req.body);
+    const domain = body.domain ? body.domain : null;
+    const domainError = await domainInUseError(domain);
+    if (domainError) {
+      res.status(409).json({ error: domainError });
+      return;
+    }
 
     const entity = await prisma.entity.create({
       data: {
         name: body.name,
         slug: body.slug,
-        domain: body.domain ? body.domain : null,
+        domain,
         active: body.active,
         maintenanceMode: body.maintenanceMode,
       },
@@ -82,9 +89,18 @@ entitiesRouter.post("/", async (req, res, next) => {
 entitiesRouter.patch("/:id", async (req, res, next) => {
   try {
     const body = updateEntitySchema.parse(req.body);
+    const entityId = String(req.params.id);
+
+    if (body.domain) {
+      const domainError = await domainInUseError(body.domain, entityId);
+      if (domainError) {
+        res.status(409).json({ error: domainError });
+        return;
+      }
+    }
 
     const entity = await prisma.entity.update({
-      where: { id: String(req.params.id) },
+      where: { id: entityId },
       data: {
         ...body,
         ...(body.domain !== undefined

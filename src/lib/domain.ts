@@ -52,6 +52,25 @@ export function matchEntityByHost(
   return { error: "Geen entiteit gevonden voor dit domein", status: 404 };
 }
 
+export function findDomainConflict(
+  entities: Array<{ id: string; name: string; domain: string | null }>,
+  domain: string | null | undefined,
+  exceptEntityId?: string,
+): { id: string; name: string } | null {
+  if (!domain?.trim()) return null;
+  const incoming = normalizeHost(domain);
+  if (!incoming) return null;
+
+  return (
+    entities.find(
+      (entity) =>
+        entity.id !== exceptEntityId &&
+        !!entity.domain?.trim() &&
+        normalizeHost(entity.domain) === incoming,
+    ) ?? null
+  );
+}
+
 /**
  * Returns null when allowed, otherwise an error message.
  * Empty configured domain = no restriction (useful during setup).

@@ -416,6 +416,32 @@ p {
   font-size: 0.85rem;
 }
 
+.btn-save {
+  min-width: 8.75rem;
+}
+
+.btn-save.is-saved {
+  background: #1f7a4d;
+}
+
+.btn-save.is-saved:disabled {
+  opacity: 1;
+}
+
+.save-toast {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 80;
+  background: #1f7a4d;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  animation: ui-reveal-pop 180ms ease;
+}
+
 .form-grid {
   display: grid;
   gap: 1rem;

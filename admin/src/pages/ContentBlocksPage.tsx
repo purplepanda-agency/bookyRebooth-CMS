@@ -3,6 +3,7 @@ import Select from "react-select";
 import { api } from "../api/client";
 import type { ContentBlock, ContentBlockButton } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
+import { useSaveNotice } from "../components/SaveNotice";
 
 type StepOption = {
   id: string;
@@ -30,6 +31,7 @@ const emptyForm: FormState = {
 
 export function ContentBlocksPage() {
   const { selectedEntityId, settleEntityTransition } = useAccessibleEntities();
+  const { markSaved } = useSaveNotice();
   const hasLoadedRef = useRef(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const [stepOptions, setStepOptions] = useState<StepOption[]>([]);
@@ -202,6 +204,7 @@ export function ContentBlocksPage() {
         });
       }
 
+      markSaved();
       closeForm();
       await reload();
     } catch (err) {

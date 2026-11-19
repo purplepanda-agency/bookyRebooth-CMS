@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { Entity } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useSaveNotice } from "../components/SaveNotice";
 
 type FormState = {
   name: string;
@@ -28,6 +29,7 @@ function slugify(value: string) {
 
 export function EntitiesPage() {
   const { user } = useAuth();
+  const { markSaved } = useSaveNotice();
   const isSuper = user?.role === "SUPER_ADMIN";
   const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +135,7 @@ export function EntitiesPage() {
         });
       }
 
+      markSaved();
       closeForm();
       await reload();
     } catch (err) {

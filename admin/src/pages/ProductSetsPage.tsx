@@ -4,6 +4,7 @@ import { Navigate } from "react-router-dom";
 import { api, uploadMedia } from "../api/client";
 import type { Entity, ProductSet, ProductSetItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useSaveNotice } from "../components/SaveNotice";
 
 type SelectOption = { value: string; label: string };
 
@@ -68,6 +69,7 @@ function IconPlus() {
 
 export function ProductSetsPage() {
   const { user } = useAuth();
+  const { markSaved } = useSaveNotice();
   const isSuper = user?.role === "SUPER_ADMIN";
   const [productSets, setProductSets] = useState<ProductSet[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -261,6 +263,7 @@ export function ProductSetsPage() {
         });
       }
 
+      markSaved();
       closeForm();
       await reload();
     } catch (err) {

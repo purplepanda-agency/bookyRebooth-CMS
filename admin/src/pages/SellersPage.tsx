@@ -9,6 +9,7 @@ import type {
   Weekday,
 } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
+import { useSaveNotice } from "../components/SaveNotice";
 
 function IconTrash() {
   return (
@@ -82,6 +83,7 @@ const emptyForm: FormState = {
 export function SellersPage() {
   const { selectedEntityId, selectedEntity, settleEntityTransition } =
     useAccessibleEntities();
+  const { markSaved } = useSaveNotice();
   const hasLoadedRef = useRef(false);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -364,6 +366,7 @@ export function SellersPage() {
         });
       }
 
+      markSaved();
       closeForm();
       await reload();
     } catch (err) {

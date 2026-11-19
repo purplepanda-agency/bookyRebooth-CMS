@@ -11,6 +11,7 @@ import type {
   ProductSet,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { SaveButton, useSaveNotice } from "../components/SaveNotice";
 import { WebhookPayloadEditor } from "../components/WebhookPayloadEditor";
 import {
   createEmptyWebhook,
@@ -255,6 +256,7 @@ export function FlowBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { savedKey, markSaved } = useSaveNotice();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -771,6 +773,7 @@ export function FlowBuilderPage() {
             key: step.id ?? crypto.randomUUID(),
           })),
       );
+      markSaved();
       navigate("/new-flow");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
@@ -907,14 +910,12 @@ export function FlowBuilderPage() {
               <span className="switch-slider" />
             </span>
           </label>
-          <button
+          <SaveButton
             type="button"
-            className="btn"
+            saving={saving}
+            saved={savedKey === "saved"}
             onClick={() => void saveFlow()}
-            disabled={saving}
-          >
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
+          />
         </div>
       </div>
 

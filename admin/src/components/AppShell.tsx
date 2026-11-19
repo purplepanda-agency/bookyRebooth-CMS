@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useAuth } from "../auth/AuthContext";
+import { SaveNoticeProvider } from "./SaveNotice";
 import { CMS_VERSION } from "../version";
 
 const roleLabel: Record<string, string> = {
@@ -132,9 +133,11 @@ export function AppShell() {
       </aside>
 
       <main className="main">
-        <div className={entityPhase === "steady" ? "entity-stage" : `entity-stage ${entityPhase}`}>
-          <Outlet />
-        </div>
+        <SaveNoticeProvider>
+          <div className={entityPhase === "steady" ? "entity-stage" : `entity-stage ${entityPhase}`}>
+            <Outlet />
+          </div>
+        </SaveNoticeProvider>
       </main>
     </div>
   );

@@ -2,6 +2,7 @@ import { Fragment, type FormEvent, useEffect, useRef, useState } from "react";
 import { api, uploadMedia } from "../api/client";
 import type { Category } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
+import { useSaveNotice } from "../components/SaveNotice";
 
 type FormState = {
   name: string;
@@ -28,6 +29,7 @@ function slugify(value: string) {
 export function CategoriesPage() {
   const { selectedEntityId, selectedEntity, settleEntityTransition } =
     useAccessibleEntities();
+  const { markSaved } = useSaveNotice();
   const hasLoadedRef = useRef(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,6 +164,7 @@ export function CategoriesPage() {
         });
       }
 
+      markSaved();
       closeForm();
       await reload();
     } catch (err) {

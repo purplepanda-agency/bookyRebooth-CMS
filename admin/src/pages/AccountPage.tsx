@@ -1,6 +1,7 @@
 import { type FormEvent, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { SaveButton, useSaveNotice } from "../components/SaveNotice";
 
 const PASSWORD_HINT =
   "Minimaal 8 tekens, met hoofdletter, kleine letter, cijfer en speciaal teken";
@@ -17,6 +18,7 @@ function passwordChecks(value: string) {
 
 export function AccountPage() {
   const { user } = useAuth();
+  const { savedKey, markSaved } = useSaveNotice();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -55,6 +57,7 @@ export function AccountPage() {
       setNewPassword("");
       setConfirmPassword("");
       setSuccess("Wachtwoord bijgewerkt");
+      markSaved("account");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Wachtwoord wijzigen mislukt",
@@ -137,13 +140,12 @@ export function AccountPage() {
           </label>
 
           <div className="actions">
-            <button
-              type="submit"
-              className="btn"
-              disabled={saving || !allChecksOk}
-            >
-              {saving ? "Opslaan…" : "Wachtwoord opslaan"}
-            </button>
+            <SaveButton
+              saving={saving}
+              saved={savedKey === "account"}
+              disabled={!allChecksOk}
+              label="Wachtwoord opslaan"
+            />
           </div>
         </form>
       </div>

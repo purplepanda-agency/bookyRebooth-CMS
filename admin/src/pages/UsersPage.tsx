@@ -3,6 +3,7 @@ import Select from "react-select";
 import { api } from "../api/client";
 import type { Role, User } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
+import { useSaveNotice } from "../components/SaveNotice";
 
 type SelectOption = { value: string; label: string };
 
@@ -36,6 +37,7 @@ function formatLastLogin(value: string | null | undefined) {
 }
 
 export function UsersPage() {
+  const { markSaved } = useSaveNotice();
   const {
     user,
     isSuper,
@@ -213,6 +215,7 @@ export function UsersPage() {
         });
       }
 
+      markSaved();
       closeForm();
       await load();
     } catch (err) {

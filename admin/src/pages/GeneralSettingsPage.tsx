@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api, uploadMedia } from "../api/client";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { BasicWysiwyg } from "../components/BasicWysiwyg";
+import { SaveButton, useSaveNotice } from "../components/SaveNotice";
 
 type SettingsTab =
   | "content"
@@ -75,6 +76,7 @@ export function GeneralSettingsPage() {
     selectedEntity,
     settleEntityTransition,
   } = useAccessibleEntities();
+  const { savedKey, markSaved } = useSaveNotice();
   const [activeTab, setActiveTab] = useState<SettingsTab>("content");
   const [connections, setConnections] = useState<SellerConnection[]>([]);
   const [configured, setConfigured] = useState(true);
@@ -469,6 +471,7 @@ export function GeneralSettingsPage() {
       setPrimaryColor(data.entity.primaryColor || "#121417");
       setSecondaryColor(data.entity.secondaryColor || "#667085");
       setAccentColor(data.entity.accentColor || "#2766ab");
+      markSaved("content");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Content opslaan mislukt");
     } finally {
@@ -503,6 +506,7 @@ export function GeneralSettingsPage() {
       setDomainValue(data.entity.domain || "");
       setMaintenanceMode(Boolean(data.entity.maintenanceMode));
       setDomainEntityName(data.entity.name);
+      markSaved("domain");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Domein opslaan mislukt");
     } finally {
@@ -540,6 +544,7 @@ export function GeneralSettingsPage() {
       setHeaderScripts(data.entity.headerScripts || "");
       setFooterScripts(data.entity.footerScripts || "");
       setTrackingEntityName(data.entity.name);
+      markSaved("tracking");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Tracking opslaan mislukt",
@@ -581,6 +586,7 @@ export function GeneralSettingsPage() {
       });
       setIntegrationsEntityName(data.entity.name);
       applyCalendarSettings(data.entity.calendar);
+      markSaved("integrations");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Integraties opslaan mislukt",
@@ -889,13 +895,11 @@ export function GeneralSettingsPage() {
                 ) : null}
 
                 <div className="actions">
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={savingIntegrations || !entityId}
-                  >
-                    {savingIntegrations ? "Opslaan…" : "Opslaan"}
-                  </button>
+                  <SaveButton
+                    saving={savingIntegrations}
+                    saved={savedKey === "integrations"}
+                    disabled={!entityId}
+                  />
                 </div>
               </div>
             </form>
@@ -1182,13 +1186,11 @@ export function GeneralSettingsPage() {
                   </span>
                 </label>
                 <div className="actions" style={{ justifyContent: "flex-start" }}>
-                  <button
-                    type="submit"
-                    className="btn"
-                    disabled={savingDomain || (!entityId)}
-                  >
-                    {savingDomain ? "Opslaan…" : "Opslaan"}
-                  </button>
+                  <SaveButton
+                    saving={savingDomain}
+                    saved={savedKey === "domain"}
+                    disabled={!entityId}
+                  />
                 </div>
               </form>
             )}
@@ -1247,13 +1249,11 @@ export function GeneralSettingsPage() {
                 </label>
 
                 <div className="actions" style={{ justifyContent: "flex-start" }}>
-                  <button
-                    type="submit"
-                    className="btn"
-                    disabled={savingTracking || (!entityId)}
-                  >
-                    {savingTracking ? "Opslaan…" : "Opslaan"}
-                  </button>
+                  <SaveButton
+                    saving={savingTracking}
+                    saved={savedKey === "tracking"}
+                    disabled={!entityId}
+                  />
                 </div>
               </form>
             )}
@@ -1415,15 +1415,11 @@ export function GeneralSettingsPage() {
               </div>
 
               <div className="actions" style={{ justifyContent: "flex-start" }}>
-                <button
-                  type="submit"
-                  className="btn"
-                  disabled={
-                    savingContent || uploadingLogo || (!entityId)
-                  }
-                >
-                  {savingContent ? "Opslaan…" : "Opslaan"}
-                </button>
+                <SaveButton
+                  saving={savingContent}
+                  saved={savedKey === "content"}
+                  disabled={uploadingLogo || !entityId}
+                />
               </div>
             </form>
           )}
