@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ZodError } from "zod";
 import { prisma } from "../../lib/prisma.js";
 import { trackEvent } from "../../lib/analytics.js";
-import { assertHostAllowed } from "../../lib/domain.js";
+import { assertHostAllowed, matchEntityByHost } from "../../lib/domain.js";
 import { uniqueSlug } from "../../lib/slugify.js";
 import {
   isRecaptchaConfigured,
@@ -245,11 +245,53 @@ async function resolveStepOptions(
   return [];
 }
 
+const HOST_SCOPED_PATH =
+  /^\/(?:bootstrap|flows\/[^/]+|availability\/slots|analytics\/events|bookings)$/;
+
+/**
+ * Live booking tool calls /api/public/... without a slug.
+ * The browser host is matched to Entity.domain, then the existing slug routes run.
+ * Localhost keeps using /api/public/:entitySlug/... because one local URL serves every entity.
+ */
+publicRouter.use(async (req, res, next) => {
+  if (!HOST_SCOPED_PATH.test(req.path)) {
+    next();
+    return;
+  }
+
+  try {
+    const host = hostFromRequest(req);
+    const entities = await prisma.entity.findMany({
+      select: { slug: true, domain: true, active: true },
+    });
+    const resolved = matchEntityByHost(entities, host);
+    if ("error" in resolved) {
+      if (resolved.status === 404) {
+        trackEvent({
+          type: "NOT_FOUND_404",
+          message: `${resolved.error} (${host ?? "geen host"})`,
+        });
+      }
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
+    const query = req.url.includes("?")
+      ? req.url.slice(req.url.indexOf("?"))
+      : "";
+    req.url = `/${resolved.slug}${req.path}${query}`;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 /**
  * Bootstrap voor de booking tool:
  * controleert entiteit + domein en geeft actieve flows terug.
  *
  * GET /api/public/:entitySlug/bootstrap?host=booking.example.com
+ * GET /api/public/bootstrap?host=booking.example.com
  */
 publicRouter.get("/:entitySlug/bootstrap", async (req, res, next) => {
   try {
