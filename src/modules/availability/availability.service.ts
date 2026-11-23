@@ -1,6 +1,11 @@
 import type { Weekday } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import {
+  includedExceptionDates,
+  readExcludedDates,
+  type ExceptionRepeatUnit,
+} from "../../lib/scheduleExceptions.js";
+import {
   checkHourlyAvailability,
   getEntityCalendarConfig,
   type HourlySlot,
@@ -185,12 +190,26 @@ export async function getAvailabilitySlots(
       active: true,
       entityId: input.entityId,
       ...(category ? { categories: { some: { id: category.id } } } : {}),
-      schedules: {
-        some: {
-          weekday,
-          ...(location ? { locationId: location.id } : {}),
+      OR: [
+        {
+          schedules: {
+            some: {
+              weekday,
+              ...(location ? { locationId: location.id } : {}),
+            },
+          },
         },
-      },
+        {
+          exceptions: {
+            some: {
+              kind: "WORKING",
+              startDate: { lte: input.date },
+              endDate: { gte: input.date },
+              ...(location ? { locationId: location.id } : {}),
+            },
+          },
+        },
+      ],
     },
     orderBy: { name: "asc" },
     select: {
@@ -210,19 +229,73 @@ export async function getAvailabilitySlots(
           locationId: true,
         },
       },
+      exceptions: {
+        where: {
+          startDate: { lte: input.date },
+          endDate: { gte: input.date },
+        },
+        select: {
+          kind: true,
+          startDate: true,
+          endDate: true,
+          repeatEvery: true,
+          repeatUnit: true,
+          excludedDates: true,
+          startTime: true,
+          endTime: true,
+          locationId: true,
+        },
+      },
     },
   });
 
   const sellersWithSlots = sellers
     .map((seller) => {
+      const coversDate = (item: {
+        startDate: string;
+        endDate: string;
+        repeatEvery: number;
+        repeatUnit: ExceptionRepeatUnit;
+        excludedDates: unknown;
+      }) =>
+        includedExceptionDates({
+          startDate: item.startDate,
+          endDate: item.endDate,
+          repeatEvery: item.repeatEvery,
+          repeatUnit: item.repeatUnit,
+          excludedDates: readExcludedDates(item.excludedDates),
+        }).includes(input.date);
+
+      if (
+        seller.exceptions.some((item) => item.kind === "OFF" && coversDate(item))
+      ) {
+        return null;
+      }
+
+      const working = seller.exceptions.find(
+        (item) =>
+          item.kind === "WORKING" &&
+          Boolean(item.startTime) &&
+          Boolean(item.endTime) &&
+          Boolean(item.locationId) &&
+          (!location || item.locationId === location.id) &&
+          coversDate(item),
+      );
+
       const schedules = seller.schedules;
-      if (schedules.length === 0) return null;
-      const preferred =
-        (seller.primaryLocationId
-          ? schedules.find(
-              (item) => item.locationId === seller.primaryLocationId,
-            )
-          : null) ?? schedules[0]!;
+      const preferred = working
+        ? {
+            startTime: working.startTime!,
+            endTime: working.endTime!,
+          }
+        : ((seller.primaryLocationId
+            ? schedules.find(
+                (item) => item.locationId === seller.primaryLocationId,
+              )
+            : null) ?? schedules[0]);
+
+      if (!preferred) return null;
+
       const candidateSlots = buildHourlySlots(
         preferred.startTime,
         preferred.endTime,

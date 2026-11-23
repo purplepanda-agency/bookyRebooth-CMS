@@ -28,6 +28,17 @@ enum Weekday {
   SUNDAY
 }
 
+enum ScheduleExceptionKind {
+  OFF
+  WORKING
+}
+
+enum ScheduleExceptionUnit {
+  DAY
+  WEEK
+  MONTH
+}
+
 enum FlowStepType {
   FREE_CHOICE
   PRODUCT_SET
@@ -138,8 +149,9 @@ model Location {
   permalink      String
   entityId       String
   entity         Entity           @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  schedules      SellerSchedule[]
-  primarySellers Seller[]         @relation("SellerPrimaryLocation")
+  schedules           SellerSchedule[]
+  scheduleExceptions  SellerScheduleException[]
+  primarySellers      Seller[]         @relation("SellerPrimaryLocation")
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -176,6 +188,7 @@ model Seller {
   googleConnectedEmail     String?          @db.VarChar(255)
   googleConnectedAt        DateTime?
   schedules                SellerSchedule[]
+  exceptions               SellerScheduleException[]
   categories               Category[]       @relation("SellerToCategory")
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -197,6 +210,27 @@ model SellerSchedule {
   updatedAt  DateTime @updatedAt
 
   @@unique([sellerId, weekday])
+  @@index([sellerId])
+  @@index([locationId])
+}
+
+model SellerScheduleException {
+  id            String                  @id @default(cuid())
+  kind          ScheduleExceptionKind
+  startDate     String                  @db.VarChar(10)
+  endDate       String                  @db.VarChar(10)
+  repeatEvery   Int                   @default(1)
+  repeatUnit    ScheduleExceptionUnit @default(DAY)
+  excludedDates Json
+  startTime     String?
+  endTime       String?
+  sellerId      String
+  seller        Seller                  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  locationId    String?
+  location      Location?               @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
   @@index([sellerId])
   @@index([locationId])
 }

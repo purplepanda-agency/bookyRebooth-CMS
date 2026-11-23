@@ -9,6 +9,7 @@ const PARENT_MODEL: Record<string, string> = {
   FlowStep: "Flow",
   ProductSetItem: "ProductSet",
   SellerSchedule: "Seller",
+  SellerScheduleException: "Seller",
   UserEntity: "User",
   ContentBlockStep: "ContentBlock",
 };
@@ -17,6 +18,7 @@ const CHILD_FIELD: Record<string, string> = {
   FlowStep: "stappen",
   ProductSetItem: "producten",
   SellerSchedule: "agenda",
+  SellerScheduleException: "uitzonderingen",
   UserEntity: "entiteiten",
   ContentBlockStep: "stappen",
 };
@@ -33,6 +35,7 @@ const NOUN: Record<string, [string, string]> = {
   ProductSetItem: ["Product", "Producten"],
   FlowStep: ["Flowstap", "Flowstappen"],
   SellerSchedule: ["Agenda", "Agenda's"],
+  SellerScheduleException: ["Uitzondering", "Uitzonderingen"],
   UserEntity: ["Gebruiker", "Gebruikers"],
 };
 
@@ -81,6 +84,16 @@ const FIELD_LABEL: Record<string, string> = {
   categories: "categorieën",
   schedules: "agenda",
   agenda: "agenda",
+  exceptions: "uitzonderingen",
+  uitzonderingen: "uitzonderingen",
+  kind: "type",
+  startDate: "begindatum",
+  endDate: "einddatum",
+  repeatEvery: "interval",
+  repeatUnit: "herhaling",
+  excludedDates: "weggeklikte datums",
+  startTime: "starttijd",
+  endTime: "eindtijd",
   products: "producten",
   producten: "producten",
   steps: "stappen",

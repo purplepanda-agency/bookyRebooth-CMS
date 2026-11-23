@@ -7,6 +7,7 @@ import {
   resolveEntityFilter,
   resolveEntityIdForWrite,
 } from "../../lib/entityScope.js";
+import { expandExceptionDates } from "../../lib/scheduleExceptions.js";
 import { createSellerSchema, updateSellerSchema } from "./sellers.schemas.js";
 
 export const sellersRouter = Router();
@@ -30,7 +31,52 @@ const sellerInclude = {
       },
     },
   },
+  exceptions: {
+    orderBy: { startDate: "asc" as const },
+    include: {
+      location: {
+        select: { id: true, name: true, permalink: true },
+      },
+    },
+  },
 };
+
+function exceptionRows(
+  exceptions: Array<{
+    kind: "OFF" | "WORKING";
+    startDate: string;
+    endDate: string;
+    repeatEvery: number;
+    repeatUnit: "DAY" | "WEEK" | "MONTH";
+    excludedDates: string[];
+    startTime?: string | null;
+    endTime?: string | null;
+    locationId?: string | null;
+  }>,
+) {
+  return exceptions.map((item) => {
+    const generated = new Set(
+      expandExceptionDates({
+        startDate: item.startDate,
+        endDate: item.endDate,
+        repeatEvery: item.repeatEvery,
+        repeatUnit: item.repeatUnit,
+      }),
+    );
+    const working = item.kind === "WORKING";
+    return {
+      kind: item.kind,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      repeatEvery: item.repeatEvery,
+      repeatUnit: item.repeatUnit,
+      excludedDates: item.excludedDates.filter((date) => generated.has(date)),
+      startTime: working ? (item.startTime ?? null) : null,
+      endTime: working ? (item.endTime ?? null) : null,
+      locationId: working ? (item.locationId ?? null) : null,
+    };
+  });
+}
 
 sellersRouter.get("/", async (req, res, next) => {
   try {
@@ -141,7 +187,13 @@ sellersRouter.post("/", async (req, res, next) => {
     }
 
     const locationError = await assertLocationsBelongToEntity(
-      [body.primaryLocationId, ...body.schedules.map((item) => item.locationId)],
+      [
+        body.primaryLocationId,
+        ...body.schedules.map((item) => item.locationId),
+        ...body.exceptions.flatMap((item) =>
+          item.kind === "WORKING" && item.locationId ? [item.locationId] : [],
+        ),
+      ],
       scope.entityId,
     );
 
@@ -179,6 +231,9 @@ sellersRouter.post("/", async (req, res, next) => {
             locationId: item.locationId,
           })),
         },
+        exceptions: {
+          create: exceptionRows(body.exceptions),
+        },
       },
       include: sellerInclude,
     });
@@ -207,7 +262,13 @@ sellersRouter.put("/:id", async (req, res, next) => {
     }
 
     const locationError = await assertLocationsBelongToEntity(
-      [body.primaryLocationId, ...body.schedules.map((item) => item.locationId)],
+      [
+        body.primaryLocationId,
+        ...body.schedules.map((item) => item.locationId),
+        ...body.exceptions.flatMap((item) =>
+          item.kind === "WORKING" && item.locationId ? [item.locationId] : [],
+        ),
+      ],
       existing.entityId,
     );
 
@@ -230,6 +291,9 @@ sellersRouter.put("/:id", async (req, res, next) => {
       await tx.sellerSchedule.deleteMany({
         where: { sellerId: String(req.params.id) },
       });
+      await tx.sellerScheduleException.deleteMany({
+        where: { sellerId: String(req.params.id) },
+      });
 
       return tx.seller.update({
         where: { id: String(req.params.id) },
@@ -249,6 +313,9 @@ sellersRouter.put("/:id", async (req, res, next) => {
               endTime: item.endTime,
               locationId: item.locationId,
             })),
+          },
+          exceptions: {
+            create: exceptionRows(body.exceptions),
           },
         },
         include: sellerInclude,

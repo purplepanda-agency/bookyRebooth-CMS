@@ -89,6 +89,23 @@ export type SellerSchedule = {
   location?: { id: string; name: string; permalink?: string } | null;
 };
 
+export type ScheduleExceptionKind = "OFF" | "WORKING";
+export type ScheduleExceptionUnit = "DAY" | "WEEK" | "MONTH";
+
+export type SellerScheduleException = {
+  id?: string;
+  kind: ScheduleExceptionKind;
+  startDate: string;
+  endDate: string;
+  repeatEvery: number;
+  repeatUnit: ScheduleExceptionUnit;
+  excludedDates: string[];
+  startTime?: string | null;
+  endTime?: string | null;
+  locationId?: string | null;
+  location?: { id: string; name: string; permalink?: string } | null;
+};
+
 export type Seller = {
   id: string;
   name: string;
@@ -101,6 +118,7 @@ export type Seller = {
   entity?: EntitySummary | null;
   categories?: Category[];
   schedules: SellerSchedule[];
+  exceptions?: SellerScheduleException[];
 };
 
 export type FlowStepType =
