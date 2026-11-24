@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { Role, User } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
 type SelectOption = { value: string; label: string };
 
@@ -12,6 +13,12 @@ type FormState = {
   password: string;
   role: Role;
   entityIds: string[];
+};
+
+type UserPatchBody = {
+  role?: Role;
+  entityIds: string[];
+  password?: string;
 };
 
 const emptyForm: FormState = {
@@ -25,6 +32,9 @@ const roleLabel: Record<Role, string> = {
   SUPER_ADMIN: "Super admin",
   ADMIN: "Admin",
 };
+
+const PASSWORD_OK =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 function formatLastLogin(value: string | null | undefined) {
   if (!value) return "Nog nooit";
@@ -52,11 +62,9 @@ export function UsersPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
   const tableColSpan = 5;
 
-  // Superadmin: full catalog. Admin: only entities they are assigned to.
-  // Never expose the superadmin catalog to a scoped admin account.
   const ownedEntities = useMemo(
     () => (isSuper ? entities : (user?.entities ?? [])),
     [isSuper, entities, user?.entities],
@@ -67,8 +75,6 @@ export function UsersPage() {
     [ownedEntities],
   );
 
-  // Admins manage users in the active entity context, so the picker only
-  // offers that entity (not other dealers they may also belong to).
   const assignableEntities = useMemo(() => {
     if (isSuper) return entities;
     if (selectedEntity && ownedIds.has(selectedEntity.id)) {
@@ -108,7 +114,73 @@ export function UsersPage() {
     return assignableEntities.map((entity) => entity.id);
   }
 
+  function resolveEntityIdsForForm(
+    draft: FormState,
+    existing: User | undefined,
+  ) {
+    if (draft.role === "SUPER_ADMIN") return [];
+
+    if (isSuper) return draft.entityIds;
+
+    if (!canChooseEntity && fixedEntity) {
+      return [fixedEntity.id];
+    }
+
+    const preserved = (existing?.entities ?? [])
+      .map((entity) => entity.id)
+      .filter(
+        (entityId) =>
+          ownedIds.has(entityId) &&
+          !assignableEntities.some((entity) => entity.id === entityId),
+      );
+
+    return [...new Set([...preserved, ...draft.entityIds])];
+  }
+
+  function buildEditBody(): UserPatchBody | null {
+    if (!editingId) return null;
+    const existing = users.find((item) => item.id === editingId);
+    const entityIds = resolveEntityIdsForForm(form, existing);
+    if (form.role === "ADMIN" && entityIds.length === 0) return null;
+
+    const password = form.password.trim();
+    if (password && !PASSWORD_OK.test(password)) return null;
+
+    if (isSuper) {
+      return {
+        role: form.role,
+        entityIds,
+        ...(password ? { password } : {}),
+      };
+    }
+
+    return { entityIds };
+  }
+
+  const { saving, flush, rememberBaseline } = useAutosaveEdit<UserPatchBody>({
+    editingId,
+    deps: form,
+    buildBody: buildEditBody,
+    onError: setError,
+    save: async (id, body) => {
+      const data = await api<{ user: User }>(`/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setUsers((prev) =>
+        prev.map((item) => (item.id === data.user.id ? data.user : item)),
+      );
+    },
+  });
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  }
+
   function openCreateForm() {
+    flush();
     setEditingId(null);
     setForm({
       ...emptyForm,
@@ -119,101 +191,77 @@ export function UsersPage() {
   }
 
   function openEditForm(item: User) {
-    setEditingId(item.id);
     const visibleIds = item.entities
       .map((entity) => entity.id)
       .filter((entityId) => ownedIds.has(entityId));
-    // Only preselect entities that are offered in the current picker context.
     const scopedIds = visibleIds.filter((entityId) =>
       assignableEntities.some((entity) => entity.id === entityId),
     );
-    setForm({
+    const next: FormState = {
       email: item.email,
       password: "",
       role: item.role,
       entityIds: scopedIds,
-    });
+    };
+    const entityIds = resolveEntityIdsForForm(next, item);
+    const baseline: UserPatchBody | null =
+      next.role === "ADMIN" && entityIds.length === 0
+        ? null
+        : isSuper
+          ? { role: next.role, entityIds }
+          : { entityIds };
+    rememberBaseline(item.id, baseline);
+    setEditingId(item.id);
+    setForm(next);
     setShowForm(true);
   }
 
-  function closeForm() {
-    setShowForm(false);
-    setEditingId(null);
-    setForm(emptyForm);
-  }
-
-  function resolveEntityIdsForSave(existing: User | undefined) {
-    if (form.role === "SUPER_ADMIN") return [];
-
-    if (isSuper) return form.entityIds;
-
-    if (!canChooseEntity && fixedEntity) {
-      return [fixedEntity.id];
+  function toggleEdit(item: User) {
+    if (showForm && editingId === item.id) {
+      flush();
+      closeForm();
+      return;
     }
-
-    // Keep assignments the admin owns outside the active entity context.
-    // The picker only toggles membership for the currently selectable entities.
-    const preserved = (existing?.entities ?? [])
-      .map((entity) => entity.id)
-      .filter(
-        (entityId) =>
-          ownedIds.has(entityId) &&
-          !assignableEntities.some((entity) => entity.id === entityId),
-      );
-
-    return [...new Set([...preserved, ...form.entityIds])];
+    flush();
+    openEditForm(item);
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    setSaving(true);
+    if (editingId) {
+      flush();
+      return;
+    }
+
+    setSavingCreate(true);
     setError(null);
 
-    const existing = editingId
-      ? users.find((item) => item.id === editingId)
-      : undefined;
-    const entityIds = resolveEntityIdsForSave(existing);
+    const entityIds = resolveEntityIdsForForm(form, undefined);
 
     if (form.role === "ADMIN" && entityIds.length === 0) {
       setError("Kies minstens één entiteit");
-      setSaving(false);
+      setSavingCreate(false);
       return;
     }
 
     try {
-      if (editingId) {
-        const patchBody = isSuper
-          ? {
-              role: form.role,
-              entityIds,
-              ...(form.password.trim()
-                ? { password: form.password.trim() }
-                : {}),
-            }
-          : { entityIds };
-        await api(`/users/${editingId}`, {
-          method: "PATCH",
-          body: JSON.stringify(patchBody),
-        });
-      } else {
-        const payload = isSuper
-          ? {
-              email: form.email,
-              password: form.password,
-              role: form.role,
-              entityIds,
-            }
-          : {
-              email: form.email,
-              password: form.password,
-              entityIds,
-            };
+      const payload = isSuper
+        ? {
+            email: form.email,
+            password: form.password,
+            role: form.role,
+            entityIds,
+          }
+        : {
+            email: form.email,
+            password: form.password,
+            entityIds,
+          };
 
-        await api("/users", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      }
+      await api("/users", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
       markSaved();
       closeForm();
@@ -221,7 +269,7 @@ export function UsersPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
     } finally {
-      setSaving(false);
+      setSavingCreate(false);
     }
   }
 
@@ -352,18 +400,20 @@ export function UsersPage() {
             extra beheerfuncties krijgen.
           </p>
         ) : null}
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-          <button type="submit" className="btn" disabled={saving}>
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-        </div>
+        {mode === "create" ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeForm}
+            >
+              Annuleren
+            </button>
+            <button type="submit" className="btn" disabled={savingCreate}>
+              {savingCreate ? "Opslaan…" : "Opslaan"}
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -409,7 +459,10 @@ export function UsersPage() {
             <tbody>
               {users.map((item) => (
                 <Fragment key={item.id}>
-                  <tr>
+                  <tr
+                    className={`row-clickable${showForm && editingId === item.id ? " is-open" : ""}`}
+                    onClick={() => toggleEdit(item)}
+                  >
                     <td>{item.email}</td>
                     <td>
                       <span className="badge">{roleLabel[item.role]}</span>
@@ -436,7 +489,7 @@ export function UsersPage() {
                       )}
                     </td>
                     <td>{formatLastLogin(item.lastLoggedInAt)}</td>
-                    <td>
+                    <td onClick={(event) => event.stopPropagation()}>
                       <div
                         style={{
                           display: "flex",
@@ -452,35 +505,15 @@ export function UsersPage() {
                               ? "btn btn-small"
                               : "btn btn-secondary btn-small"
                           }
-                          disabled={
-                            (showForm &&
-                              Boolean(editingId) &&
-                              editingId !== item.id) ||
-                            (editingId === item.id && saving)
-                          }
-                          onClick={() => {
-                            if (showForm && editingId === item.id) {
-                              (
-                                document.getElementById(
-                                  "user-form-edit",
-                                ) as HTMLFormElement | null
-                              )?.requestSubmit();
-                              return;
-                            }
-                            openEditForm(item);
-                          }}
+                          onClick={() => toggleEdit(item)}
                         >
-                          {showForm && editingId === item.id
-                            ? saving
-                              ? "Opslaan…"
-                              : "Opslaan"
-                            : "Bewerken"}
+                          Bewerken
                         </button>
                         {isSuper && item.id !== user?.id ? (
                           <button
                             type="button"
                             className="btn btn-secondary btn-small"
-                            disabled={saving}
+                            disabled={saving || savingCreate}
                             onClick={() => void onDelete(item)}
                           >
                             Verwijderen

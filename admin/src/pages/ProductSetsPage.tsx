@@ -5,6 +5,7 @@ import { api, uploadMedia } from "../api/client";
 import type { Entity, ProductSet, ProductSetItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useSaveNotice } from "../components/SaveNotice";
+import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
 type SelectOption = { value: string; label: string };
 
@@ -19,6 +20,24 @@ type FormState = {
   products: DraftProduct[];
   entityIds: string[];
 };
+
+type ProductSetPutBody = {
+  name: string;
+  entityIds: string[];
+  products: Array<{ name: string; photoUrl: string }>;
+};
+
+function productSetBody(form: FormState): ProductSetPutBody | null {
+  const name = form.name.trim();
+  const products = form.products
+    .filter((product) => product.name.trim() && product.photoUrl)
+    .map((product) => ({
+      name: product.name.trim(),
+      photoUrl: product.photoUrl,
+    }));
+  if (!name || products.length === 0) return null;
+  return { name, entityIds: form.entityIds, products };
+}
 
 function newProduct(): DraftProduct {
   return {
@@ -78,7 +97,7 @@ export function ProductSetsPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const tableColSpan = 4;
@@ -91,6 +110,24 @@ export function ProductSetsPage() {
       })),
     [entities],
   );
+
+  const { flush, rememberBaseline } = useAutosaveEdit<ProductSetPutBody>({
+    editingId,
+    deps: form,
+    buildBody: () => (editingId ? productSetBody(form) : null),
+    onError: setError,
+    save: async (id, body) => {
+      const data = await api<{ productSet: ProductSet }>(`/product-sets/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+      setProductSets((prev) =>
+        prev.map((item) =>
+          item.id === data.productSet.id ? data.productSet : item,
+        ),
+      );
+    },
+  });
 
   useEffect(() => {
     if (!isSuper) return;
@@ -124,16 +161,20 @@ export function ProductSetsPage() {
     };
   }, [isSuper]);
 
-  if (!isSuper) {
-    return <Navigate to="/" replace />;
-  }
-
   async function reload() {
     const data = await api<{ productSets: ProductSet[] }>("/product-sets");
     setProductSets(data.productSets);
   }
 
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setExpandedKeys(new Set());
+  }
+
   function startCreate() {
+    flush();
     const product = newProduct();
     setEditingId(null);
     setForm({ name: "", products: [product], entityIds: [] });
@@ -151,13 +192,14 @@ export function ProductSetsPage() {
           }))
         : [newProduct()];
 
-    setEditingId(set.id);
-    setForm({
+    const next: FormState = {
       name: set.name,
       products,
       entityIds: (set.entities ?? []).map((entity) => entity.id),
-    });
-    // Existing items start collapsed; empty draft starts expanded
+    };
+    rememberBaseline(set.id, productSetBody(next));
+    setEditingId(set.id);
+    setForm(next);
     setExpandedKeys(
       new Set(
         products
@@ -168,11 +210,19 @@ export function ProductSetsPage() {
     setShowForm(true);
   }
 
-  function closeForm() {
-    setShowForm(false);
-    setEditingId(null);
-    setForm(emptyForm);
-    setExpandedKeys(new Set());
+  function toggleEdit(set: ProductSet) {
+    if (uploadingKey) return;
+    if (showForm && editingId === set.id) {
+      flush();
+      closeForm();
+      return;
+    }
+    flush();
+    startEdit(set);
+  }
+
+  if (!isSuper) {
+    return <Navigate to="/" replace />;
   }
 
   function setExpanded(key: string, expanded: boolean) {
@@ -228,40 +278,25 @@ export function ProductSetsPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (editingId) {
+      flush();
+      return;
+    }
 
-    const products = form.products.filter(
-      (product) => product.name.trim() && product.photoUrl,
-    );
-
-    if (products.length === 0) {
+    const payload = productSetBody(form);
+    if (!payload) {
       setError("Voeg minstens één product toe met naam en foto");
       return;
     }
 
-    setSaving(true);
+    setSavingCreate(true);
     setError(null);
 
-    const payload = {
-      name: form.name,
-      entityIds: form.entityIds,
-      products: products.map((product) => ({
-        name: product.name,
-        photoUrl: product.photoUrl,
-      })),
-    };
-
     try {
-      if (editingId) {
-        await api(`/product-sets/${editingId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
-      } else {
-        await api("/product-sets", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      }
+      await api("/product-sets", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
       markSaved();
       closeForm();
@@ -269,7 +304,7 @@ export function ProductSetsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
     } finally {
-      setSaving(false);
+      setSavingCreate(false);
     }
   }
 
@@ -477,22 +512,24 @@ export function ProductSetsPage() {
           </div>
         </div>
 
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-          <button
-            type="submit"
-            className="btn"
-            disabled={saving || uploadingKey !== null}
-          >
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-        </div>
+        {mode === "create" ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeForm}
+            >
+              Annuleren
+            </button>
+            <button
+              type="submit"
+              className="btn"
+              disabled={savingCreate || uploadingKey !== null}
+            >
+              {savingCreate ? "Opslaan…" : "Opslaan"}
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -593,30 +630,10 @@ export function ProductSetsPage() {
                             ? "btn btn-small"
                             : "btn btn-secondary btn-small"
                         }
-                        disabled={
-                          (showForm &&
-                            Boolean(editingId) &&
-                            editingId !== set.id) ||
-                          (editingId === set.id &&
-                            (saving || uploadingKey !== null))
-                        }
-                        onClick={() => {
-                          if (showForm && editingId === set.id) {
-                            (
-                              document.getElementById(
-                                "product-set-form-edit",
-                              ) as HTMLFormElement | null
-                            )?.requestSubmit();
-                            return;
-                          }
-                          startEdit(set);
-                        }}
+                        disabled={uploadingKey !== null}
+                        onClick={() => toggleEdit(set)}
                       >
-                        {showForm && editingId === set.id
-                          ? saving
-                            ? "Opslaan…"
-                            : "Opslaan"
-                          : "Bewerken"}
+                        Bewerken
                       </button>
                       <button
                         type="button"

@@ -4,6 +4,53 @@ import { api } from "../api/client";
 import type { ContentBlock, ContentBlockButton } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
+
+type ContentBlockPutBody = {
+  title: string;
+  text: string;
+  buttons: ContentBlockButton[];
+  active: boolean;
+  stepIds: string[];
+  entityId: string;
+};
+
+function cleanedButtons(
+  buttons: ContentBlockButton[],
+): ContentBlockButton[] | null {
+  const trimmed = buttons.map((button) => ({
+    label: button.label.trim(),
+    url: button.url.trim(),
+  }));
+  if (
+    trimmed.some(
+      (button) => (button.label || button.url) && (!button.label || !button.url),
+    )
+  ) {
+    return null;
+  }
+  return trimmed.filter((button) => button.label && button.url);
+}
+
+function contentBlockPutBody(
+  form: FormState,
+  entityId: string | undefined,
+): ContentBlockPutBody | null {
+  if (!entityId) return null;
+  const title = form.title.trim();
+  const text = form.text.trim();
+  if (!title || !text) return null;
+  const buttons = cleanedButtons(form.buttons);
+  if (buttons === null) return null;
+  return {
+    title,
+    text,
+    buttons,
+    active: form.active,
+    stepIds: form.stepIds,
+    entityId,
+  };
+}
 
 type StepOption = {
   id: string;
@@ -40,7 +87,7 @@ export function ContentBlocksPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
   const tableColSpan = 4;
 
   const selectOptions = useMemo(
@@ -108,15 +155,38 @@ export function ContentBlocksPage() {
     setStepOptions(optionsData.options);
   }
 
-  function startCreate() {
+  const { saving, flush, rememberBaseline } =
+    useAutosaveEdit<ContentBlockPutBody>({
+      editingId,
+      deps: form,
+      buildBody: () =>
+        editingId ? contentBlockPutBody(form, selectedEntityId) : null,
+      onError: setError,
+      save: async (id, body) => {
+        const data = await api<{ contentBlock: ContentBlock }>(
+          `/content-blocks/${id}`,
+          {
+            method: "PUT",
+            body: JSON.stringify(body),
+          },
+        );
+        setBlocks((prev) =>
+          prev.map((item) =>
+            item.id === data.contentBlock.id ? data.contentBlock : item,
+          ),
+        );
+      },
+    });
+
+  function openCreateForm() {
+    flush();
     setEditingId(null);
     setForm(emptyForm);
     setShowForm(true);
   }
 
-  function startEdit(block: ContentBlock) {
-    setEditingId(block.id);
-    setForm({
+  function openEditForm(block: ContentBlock) {
+    const next: FormState = {
       title: block.title,
       text: block.text,
       buttons: block.buttons.length
@@ -124,8 +194,24 @@ export function ContentBlocksPage() {
         : [],
       active: block.active,
       stepIds: block.steps.map((step) => step.id),
-    });
+    };
+    rememberBaseline(
+      block.id,
+      contentBlockPutBody(next, block.entityId ?? selectedEntityId),
+    );
+    setEditingId(block.id);
+    setForm(next);
     setShowForm(true);
+  }
+
+  function toggleEdit(block: ContentBlock) {
+    if (showForm && editingId === block.id) {
+      flush();
+      closeForm();
+      return;
+    }
+    flush();
+    openEditForm(block);
   }
 
   function closeForm() {
@@ -163,24 +249,23 @@ export function ContentBlocksPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (editingId) {
+      flush();
+      return;
+    }
+
     if (!selectedEntityId) {
       setError("Kies een entiteit");
       return;
     }
 
-    const buttons = form.buttons
-      .map((button) => ({
-        label: button.label.trim(),
-        url: button.url.trim(),
-      }))
-      .filter((button) => button.label || button.url);
-
-    if (buttons.some((button) => !button.label || !button.url)) {
+    const buttons = cleanedButtons(form.buttons);
+    if (buttons === null) {
       setError("Elke knop heeft een label én URL nodig");
       return;
     }
 
-    setSaving(true);
+    setSavingCreate(true);
     setError(null);
     try {
       const payload = {
@@ -192,17 +277,10 @@ export function ContentBlocksPage() {
         entityId: selectedEntityId,
       };
 
-      if (editingId) {
-        await api(`/content-blocks/${editingId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
-      } else {
-        await api(`/content-blocks`, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      }
+      await api(`/content-blocks`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
       markSaved();
       closeForm();
@@ -210,7 +288,7 @@ export function ContentBlocksPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
     } finally {
-      setSaving(false);
+      setSavingCreate(false);
     }
   }
 
@@ -387,18 +465,20 @@ export function ContentBlocksPage() {
           </span>
         </label>
 
-        <div className="actions">
-          <button type="submit" className="btn" disabled={saving}>
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-        </div>
+        {mode === "create" ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeForm}
+            >
+              Annuleren
+            </button>
+            <button type="submit" className="btn" disabled={savingCreate}>
+              {savingCreate ? "Opslaan…" : "Opslaan"}
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -413,7 +493,7 @@ export function ContentBlocksPage() {
             booking tool verschijnen.
           </p>
         </div>
-        <button type="button" className="btn" onClick={startCreate}>
+        <button type="button" className="btn" onClick={openCreateForm}>
           Nieuw contentblok
         </button>
       </div>
@@ -449,6 +529,7 @@ export function ContentBlocksPage() {
                           <input
                             type="checkbox"
                             checked={block.active}
+                            disabled={editingId === block.id}
                             onChange={() => void toggleActive(block)}
                             aria-label={
                               block.active
@@ -485,29 +566,10 @@ export function ContentBlocksPage() {
                               ? "btn btn-small"
                               : "btn btn-secondary btn-small"
                           }
-                          disabled={
-                            (showForm &&
-                              Boolean(editingId) &&
-                              editingId !== block.id) ||
-                            (editingId === block.id && saving)
-                          }
-                          onClick={() => {
-                            if (showForm && editingId === block.id) {
-                              (
-                                document.getElementById(
-                                  "content-block-form-edit",
-                                ) as HTMLFormElement | null
-                              )?.requestSubmit();
-                              return;
-                            }
-                            startEdit(block);
-                          }}
+                          disabled={editingId === block.id && saving}
+                          onClick={() => toggleEdit(block)}
                         >
-                          {showForm && editingId === block.id
-                            ? saving
-                              ? "Opslaan…"
-                              : "Opslaan"
-                            : "Bewerken"}
+                          Bewerken
                         </button>
                         <button
                           type="button"

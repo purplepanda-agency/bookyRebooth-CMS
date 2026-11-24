@@ -3,6 +3,7 @@ import { api, uploadMedia } from "../api/client";
 import type { Category } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
 type FormState = {
   name: string;
@@ -26,6 +27,21 @@ function slugify(value: string) {
     .replace(/^-|-$/g, "");
 }
 
+type CategoryPatchBody = {
+  name: string;
+  imageUrl: string | null;
+  slug: string;
+};
+
+function categoryPatchBody(form: FormState): CategoryPatchBody | null {
+  if (!form.name.trim() || !form.slug.trim()) return null;
+  return {
+    name: form.name,
+    imageUrl: form.imageUrl || null,
+    slug: form.slug,
+  };
+}
+
 export function CategoriesPage() {
   const { selectedEntityId, selectedEntity, settleEntityTransition } =
     useAccessibleEntities();
@@ -37,7 +53,7 @@ export function CategoriesPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [slugTouched, setSlugTouched] = useState(false);
   const mediaEntityKey = selectedEntity?.slug || "global";
@@ -88,7 +104,26 @@ export function CategoriesPage() {
     setCategories(data.categories);
   }
 
-  function startCreate() {
+  const { saving, flush, rememberBaseline } = useAutosaveEdit<CategoryPatchBody>({
+    editingId,
+    deps: form,
+    buildBody: () => (editingId ? categoryPatchBody(form) : null),
+    onError: setError,
+    save: async (id, body) => {
+      const data = await api<{ category: Category }>(`/categories/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setCategories((prev) =>
+        prev.map((item) =>
+          item.id === data.category.id ? data.category : item,
+        ),
+      );
+    },
+  });
+
+  function openCreateForm() {
+    flush();
     setEditingId(null);
     setSlugTouched(false);
     setForm({
@@ -98,16 +133,28 @@ export function CategoriesPage() {
     setShowForm(true);
   }
 
-  function startEdit(category: Category) {
-    setEditingId(category.id);
-    setSlugTouched(true);
-    setForm({
+  function openEditForm(category: Category) {
+    const next: FormState = {
       name: category.name,
       imageUrl: category.imageUrl || "",
       slug: category.slug,
       entityId: category.entityId,
-    });
+    };
+    rememberBaseline(category.id, categoryPatchBody(next));
+    setEditingId(category.id);
+    setSlugTouched(true);
+    setForm(next);
     setShowForm(true);
+  }
+
+  function toggleEdit(category: Category) {
+    if (showForm && editingId === category.id) {
+      flush();
+      closeForm();
+      return;
+    }
+    flush();
+    openEditForm(category);
   }
 
   function closeForm() {
@@ -133,36 +180,30 @@ export function CategoriesPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    setSaving(true);
+    if (editingId) {
+      flush();
+      return;
+    }
+
+    setSavingCreate(true);
     setError(null);
 
     try {
-      if (editingId) {
-        await api(`/categories/${editingId}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            name: form.name,
-            imageUrl: form.imageUrl || null,
-            slug: form.slug,
-          }),
-        });
-      } else {
-        if (!selectedEntityId) {
-          setError("Kies een entiteit");
-          setSaving(false);
-          return;
-        }
-
-        await api("/categories", {
-          method: "POST",
-          body: JSON.stringify({
-            name: form.name,
-            imageUrl: form.imageUrl || null,
-            slug: form.slug,
-            entityId: selectedEntityId,
-          }),
-        });
+      if (!selectedEntityId) {
+        setError("Kies een entiteit");
+        setSavingCreate(false);
+        return;
       }
+
+      await api("/categories", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          imageUrl: form.imageUrl || null,
+          slug: form.slug,
+          entityId: selectedEntityId,
+        }),
+      });
 
       markSaved();
       closeForm();
@@ -170,7 +211,7 @@ export function CategoriesPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
     } finally {
-      setSaving(false);
+      setSavingCreate(false);
     }
   }
 
@@ -257,22 +298,24 @@ export function CategoriesPage() {
           </div>
         ) : null}
 
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-          <button
-            type="submit"
-            className="btn"
-            disabled={saving || uploading}
-          >
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-        </div>
+        {mode === "create" ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeForm}
+            >
+              Annuleren
+            </button>
+            <button
+              type="submit"
+              className="btn"
+              disabled={savingCreate || uploading}
+            >
+              {savingCreate ? "Opslaan…" : "Opslaan"}
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -284,7 +327,7 @@ export function CategoriesPage() {
           <h1>Categorieën</h1>
           <p>Categorieën van jouw entiteit beheren.</p>
         </div>
-        <button type="button" className="btn" onClick={startCreate}>
+        <button type="button" className="btn" onClick={openCreateForm}>
           Nieuwe categorie
         </button>
       </div>
@@ -362,29 +405,11 @@ export function CategoriesPage() {
                               : "btn btn-secondary btn-small"
                           }
                           disabled={
-                            (showForm &&
-                              Boolean(editingId) &&
-                              editingId !== category.id) ||
-                            (editingId === category.id &&
-                              (saving || uploading))
+                            editingId === category.id && (saving || uploading)
                           }
-                          onClick={() => {
-                            if (showForm && editingId === category.id) {
-                              (
-                                document.getElementById(
-                                  "category-form-edit",
-                                ) as HTMLFormElement | null
-                              )?.requestSubmit();
-                              return;
-                            }
-                            startEdit(category);
-                          }}
+                          onClick={() => toggleEdit(category)}
                         >
-                          {showForm && editingId === category.id
-                            ? saving
-                              ? "Opslaan…"
-                              : "Opslaan"
-                            : "Bewerken"}
+                          Bewerken
                         </button>
                         <button
                           type="button"

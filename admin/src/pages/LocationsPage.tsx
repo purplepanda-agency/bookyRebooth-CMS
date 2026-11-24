@@ -3,6 +3,17 @@ import { api, uploadMedia } from "../api/client";
 import type { Location } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
+
+type LocationPatchBody = {
+  name: string;
+  imageUrl: string | null;
+  address: string;
+  googleMapsUrl: string;
+  phone: string;
+  email: string;
+  permalink: string;
+};
 
 type FormState = {
   name: string;
@@ -14,6 +25,21 @@ type FormState = {
   permalink: string;
   entityId: string;
 };
+
+function locationPatchBody(form: FormState): LocationPatchBody | null {
+  if (!form.name.trim() || !form.permalink.trim() || !form.address.trim()) {
+    return null;
+  }
+  return {
+    name: form.name,
+    imageUrl: form.imageUrl || null,
+    address: form.address,
+    googleMapsUrl: form.googleMapsUrl,
+    phone: form.phone,
+    email: form.email,
+    permalink: form.permalink,
+  };
+}
 
 const emptyForm: FormState = {
   name: "",
@@ -45,7 +71,7 @@ export function LocationsPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [permalinkTouched, setPermalinkTouched] = useState(false);
   const mediaEntityKey = selectedEntity?.slug || "global";
@@ -94,7 +120,24 @@ export function LocationsPage() {
     setLocations(data.locations);
   }
 
-  function startCreate() {
+  const { saving, flush, rememberBaseline } = useAutosaveEdit<LocationPatchBody>({
+    editingId,
+    deps: form,
+    buildBody: () => (editingId ? locationPatchBody(form) : null),
+    onError: setError,
+    save: async (id, body) => {
+      const data = await api<{ location: Location }>(`/locations/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setLocations((prev) =>
+        prev.map((item) => (item.id === data.location.id ? data.location : item)),
+      );
+    },
+  });
+
+  function openCreateForm() {
+    flush();
     setEditingId(null);
     setPermalinkTouched(false);
     setForm({
@@ -104,10 +147,8 @@ export function LocationsPage() {
     setShowForm(true);
   }
 
-  function startEdit(location: Location) {
-    setEditingId(location.id);
-    setPermalinkTouched(true);
-    setForm({
+  function openEditForm(location: Location) {
+    const next: FormState = {
       name: location.name,
       imageUrl: location.imageUrl || "",
       address: location.address,
@@ -116,8 +157,22 @@ export function LocationsPage() {
       email: location.email,
       permalink: location.permalink,
       entityId: location.entityId,
-    });
+    };
+    rememberBaseline(location.id, locationPatchBody(next));
+    setEditingId(location.id);
+    setPermalinkTouched(true);
+    setForm(next);
     setShowForm(true);
+  }
+
+  function toggleEdit(location: Location) {
+    if (showForm && editingId === location.id) {
+      flush();
+      closeForm();
+      return;
+    }
+    flush();
+    openEditForm(location);
   }
 
   function closeForm() {
@@ -143,44 +198,34 @@ export function LocationsPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    setSaving(true);
+    if (editingId) {
+      flush();
+      return;
+    }
+
+    setSavingCreate(true);
     setError(null);
 
     try {
-      if (editingId) {
-        await api(`/locations/${editingId}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            name: form.name,
-            imageUrl: form.imageUrl || null,
-            address: form.address,
-            googleMapsUrl: form.googleMapsUrl,
-            phone: form.phone,
-            email: form.email,
-            permalink: form.permalink,
-          }),
-        });
-      } else {
-        if (!selectedEntityId) {
-          setError("Kies een entiteit");
-          setSaving(false);
-          return;
-        }
-
-        await api("/locations", {
-          method: "POST",
-          body: JSON.stringify({
-            name: form.name,
-            imageUrl: form.imageUrl || null,
-            address: form.address,
-            googleMapsUrl: form.googleMapsUrl,
-            phone: form.phone,
-            email: form.email,
-            permalink: form.permalink,
-            entityId: selectedEntityId,
-          }),
-        });
+      if (!selectedEntityId) {
+        setError("Kies een entiteit");
+        setSavingCreate(false);
+        return;
       }
+
+      await api("/locations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          imageUrl: form.imageUrl || null,
+          address: form.address,
+          googleMapsUrl: form.googleMapsUrl,
+          phone: form.phone,
+          email: form.email,
+          permalink: form.permalink,
+          entityId: selectedEntityId,
+        }),
+      });
 
       markSaved();
       closeForm();
@@ -188,7 +233,7 @@ export function LocationsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
     } finally {
-      setSaving(false);
+      setSavingCreate(false);
     }
   }
 
@@ -312,22 +357,24 @@ export function LocationsPage() {
           />
         ) : null}
 
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-          <button
-            type="submit"
-            className="btn"
-            disabled={saving || uploading}
-          >
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-        </div>
+        {mode === "create" ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeForm}
+            >
+              Annuleren
+            </button>
+            <button
+              type="submit"
+              className="btn"
+              disabled={savingCreate || uploading}
+            >
+              {savingCreate ? "Opslaan…" : "Opslaan"}
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -339,7 +386,7 @@ export function LocationsPage() {
           <h1>Locaties</h1>
           <p>Locaties van jouw entiteit beheren.</p>
         </div>
-        <button type="button" className="btn" onClick={startCreate}>
+        <button type="button" className="btn" onClick={openCreateForm}>
           Nieuwe locatie
         </button>
       </div>
@@ -407,29 +454,11 @@ export function LocationsPage() {
                               : "btn btn-secondary btn-small"
                           }
                           disabled={
-                            (showForm &&
-                              Boolean(editingId) &&
-                              editingId !== location.id) ||
-                            (editingId === location.id &&
-                              (saving || uploading))
+                            editingId === location.id && (saving || uploading)
                           }
-                          onClick={() => {
-                            if (showForm && editingId === location.id) {
-                              (
-                                document.getElementById(
-                                  "location-form-edit",
-                                ) as HTMLFormElement | null
-                              )?.requestSubmit();
-                              return;
-                            }
-                            startEdit(location);
-                          }}
+                          onClick={() => toggleEdit(location)}
                         >
-                          {showForm && editingId === location.id
-                            ? saving
-                              ? "Opslaan…"
-                              : "Opslaan"
-                            : "Bewerken"}
+                          Bewerken
                         </button>
                         <button
                           type="button"

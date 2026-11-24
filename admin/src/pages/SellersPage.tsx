@@ -276,7 +276,7 @@ const emptyForm: FormState = {
   name: "",
   email: "",
   imageUrl: "",
-  active: true,
+  active: false,
   entityId: "",
   primaryLocationId: "",
   categoryIds: [],
@@ -905,28 +905,6 @@ export function SellersPage() {
             />
           </label>
         </div>
-
-        {mode === "create" ? (
-          <label className="switch-row">
-            <span className="switch">
-              <input
-                type="checkbox"
-                checked={form.active}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, active: e.target.checked }))
-                }
-              />
-              <span className="switch-slider" />
-            </span>
-            <span>
-              <strong>{form.active ? "Actief" : "Inactief"}</strong>
-              <span className="muted" style={{ display: "block" }}>
-                Inactieve verkopers zijn tijdelijk niet zichtbaar in de
-                toepassing.
-              </span>
-            </span>
-          </label>
-        ) : null}
 
         <div className="stack">
           <h3>Werkschema</h3>

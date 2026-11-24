@@ -4,6 +4,24 @@ import { api } from "../api/client";
 import type { Entity } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useSaveNotice } from "../components/SaveNotice";
+import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
+
+type EntityPatchBody = {
+  name: string;
+  slug: string;
+  active: boolean;
+  maintenanceMode: boolean;
+};
+
+function entityPatchBody(form: FormState): EntityPatchBody | null {
+  if (!form.name.trim() || !form.slug.trim()) return null;
+  return {
+    name: form.name,
+    slug: form.slug,
+    active: form.active,
+    maintenanceMode: form.maintenanceMode,
+  };
+}
 
 type FormState = {
   name: string;
@@ -37,9 +55,25 @@ export function EntitiesPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [slugTouched, setSlugTouched] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingCreate, setSavingCreate] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const tableColSpan = 5;
+
+  const { saving, flush, rememberBaseline } = useAutosaveEdit<EntityPatchBody>({
+    editingId,
+    deps: form,
+    buildBody: () => (editingId ? entityPatchBody(form) : null),
+    onError: setError,
+    save: async (id, body) => {
+      const data = await api<{ entity: Entity }>(`/entities/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setEntities((prev) =>
+        prev.map((item) => (item.id === data.entity.id ? data.entity : item)),
+      );
+    },
+  });
 
   useEffect(() => {
     if (!isSuper) {
@@ -78,23 +112,36 @@ export function EntitiesPage() {
     return <Navigate to="/" replace />;
   }
 
-  function startCreate() {
+  function openCreateForm() {
+    flush();
     setEditingId(null);
     setForm(emptyForm);
     setSlugTouched(false);
     setShowForm(true);
   }
 
-  function startEdit(entity: Entity) {
-    setEditingId(entity.id);
-    setForm({
+  function openEditForm(entity: Entity) {
+    const next: FormState = {
       name: entity.name,
       slug: entity.slug,
       active: entity.active,
       maintenanceMode: Boolean(entity.maintenanceMode),
-    });
+    };
+    rememberBaseline(entity.id, entityPatchBody(next));
+    setEditingId(entity.id);
+    setForm(next);
     setSlugTouched(true);
     setShowForm(true);
+  }
+
+  function toggleEdit(entity: Entity) {
+    if (showForm && editingId === entity.id) {
+      flush();
+      closeForm();
+      return;
+    }
+    flush();
+    openEditForm(entity);
   }
 
   function closeForm() {
@@ -119,21 +166,19 @@ export function EntitiesPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    setSaving(true);
+    if (editingId) {
+      flush();
+      return;
+    }
+
+    setSavingCreate(true);
     setError(null);
 
     try {
-      if (editingId) {
-        await api(`/entities/${editingId}`, {
-          method: "PATCH",
-          body: JSON.stringify(form),
-        });
-      } else {
-        await api("/entities", {
-          method: "POST",
-          body: JSON.stringify(form),
-        });
-      }
+      await api("/entities", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
 
       markSaved();
       closeForm();
@@ -141,7 +186,7 @@ export function EntitiesPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Opslaan mislukt");
     } finally {
-      setSaving(false);
+      setSavingCreate(false);
     }
   }
 
@@ -217,18 +262,20 @@ export function EntitiesPage() {
             </span>
           </span>
         </label>
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-          <button type="submit" className="btn" disabled={saving}>
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-        </div>
+        {mode === "create" ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={closeForm}
+            >
+              Annuleren
+            </button>
+            <button type="submit" className="btn" disabled={savingCreate}>
+              {savingCreate ? "Opslaan…" : "Opslaan"}
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -240,7 +287,7 @@ export function EntitiesPage() {
           <h1>Entiteiten</h1>
           <p>Beheer dealers / organisaties en hun status.</p>
         </div>
-        <button type="button" className="btn" onClick={startCreate}>
+        <button type="button" className="btn" onClick={openCreateForm}>
           Nieuwe entiteit
         </button>
       </div>
@@ -297,29 +344,10 @@ export function EntitiesPage() {
                             ? "btn btn-small"
                             : "btn btn-secondary btn-small"
                         }
-                        disabled={
-                          (showForm &&
-                            Boolean(editingId) &&
-                            editingId !== entity.id) ||
-                          (editingId === entity.id && saving)
-                        }
-                        onClick={() => {
-                          if (showForm && editingId === entity.id) {
-                            (
-                              document.getElementById(
-                                "entity-form-edit",
-                              ) as HTMLFormElement | null
-                            )?.requestSubmit();
-                            return;
-                          }
-                          startEdit(entity);
-                        }}
+                        disabled={editingId === entity.id && saving}
+                        onClick={() => toggleEdit(entity)}
                       >
-                        {showForm && editingId === entity.id
-                          ? saving
-                            ? "Opslaan…"
-                            : "Opslaan"
-                          : "Bewerken"}
+                        Bewerken
                       </button>
                     </td>
                   </tr>
