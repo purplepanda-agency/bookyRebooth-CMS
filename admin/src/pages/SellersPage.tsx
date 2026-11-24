@@ -79,14 +79,14 @@ type FormState = {
   exceptions: DraftException[];
 };
 
-const WEEKDAYS: Array<{ value: Weekday; label: string }> = [
-  { value: "MONDAY", label: "Maandag" },
-  { value: "TUESDAY", label: "Dinsdag" },
-  { value: "WEDNESDAY", label: "Woensdag" },
-  { value: "THURSDAY", label: "Donderdag" },
-  { value: "FRIDAY", label: "Vrijdag" },
-  { value: "SATURDAY", label: "Zaterdag" },
-  { value: "SUNDAY", label: "Zondag" },
+const WEEKDAYS: Array<{ value: Weekday; label: string; short: string }> = [
+  { value: "MONDAY", label: "Maandag", short: "Ma" },
+  { value: "TUESDAY", label: "Dinsdag", short: "Di" },
+  { value: "WEDNESDAY", label: "Woensdag", short: "Wo" },
+  { value: "THURSDAY", label: "Donderdag", short: "Do" },
+  { value: "FRIDAY", label: "Vrijdag", short: "Vr" },
+  { value: "SATURDAY", label: "Zaterdag", short: "Za" },
+  { value: "SUNDAY", label: "Zondag", short: "Zo" },
 ];
 
 function newSchedule(
@@ -117,14 +117,6 @@ function newException(locationId = ""): DraftException {
   };
 }
 
-function weekdayName(iso: string) {
-  const [year, month, day] = iso.split("-").map(Number);
-  return new Intl.DateTimeFormat("nl-BE", {
-    weekday: "long",
-    timeZone: "UTC",
-  }).format(new Date(Date.UTC(year!, (month ?? 1) - 1, day)));
-}
-
 function formatChipDate(iso: string) {
   const [year, month, day] = iso.split("-").map(Number);
   return new Intl.DateTimeFormat("nl-BE", {
@@ -133,35 +125,6 @@ function formatChipDate(iso: string) {
     month: "short",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(year!, (month ?? 1) - 1, day)));
-}
-
-function unitWord(every: number, unit: ExceptionRepeatUnit) {
-  if (unit === "WEEK") return every === 1 ? "week" : "weken";
-  if (unit === "MONTH") return every === 1 ? "maand" : "maanden";
-  return every === 1 ? "dag" : "dagen";
-}
-
-function repeatHint(item: DraftException) {
-  const every = Math.min(
-    MAX_REPEAT_EVERY,
-    Math.max(1, Math.floor(item.repeatEvery) || 1),
-  );
-  if (item.repeatUnit === "WEEK" && item.startDate) {
-    const day = weekdayName(item.startDate);
-    return every === 1
-      ? `Elke ${day} tot en met de einddatum.`
-      : `Elke ${every} weken op ${day}, tot en met de einddatum.`;
-  }
-  if (item.repeatUnit === "MONTH" && item.startDate) {
-    const day = Number(item.startDate.slice(8, 10));
-    const lead =
-      every === 1 ? `Elke maand op dag ${day}` : `Elke ${every} maanden op dag ${day}`;
-    return `${lead}, tot en met de einddatum. Maanden zonder die dag worden overgeslagen.`;
-  }
-  if (item.repeatUnit === "DAY" && every === 1) {
-    return "Elke dag van de begin- tot de einddatum.";
-  }
-  return `Elke ${every} ${unitWord(every, item.repeatUnit)} vanaf de begindatum, tot en met de einddatum.`;
 }
 
 function exceptionRule(item: DraftException) {
@@ -214,6 +177,67 @@ function draftExceptions(seller: Seller): DraftException[] {
     endTime: item.endTime || "17:00",
     locationId: item.locationId || seller.primaryLocationId || "",
   }));
+}
+
+type SellerWritePayload = {
+  name: string;
+  email: string;
+  imageUrl: string;
+  active: boolean;
+  primaryLocationId: string;
+  categoryIds: string[];
+  schedules: Array<{
+    weekday: Weekday;
+    startTime: string;
+    endTime: string;
+    locationId: string;
+  }>;
+  exceptions: ReturnType<typeof exceptionPayload>;
+};
+
+function buildAutoPayload(
+  form: FormState,
+  persistedExceptionKeys: Set<string>,
+): { body: SellerWritePayload; exceptionKeys: string[] } | null {
+  const name = form.name.trim();
+  if (!name || name.length > 120) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return null;
+  if (!form.imageUrl || !form.primaryLocationId) return null;
+
+  const weekdays = new Set<string>();
+  for (const item of form.schedules) {
+    if (!item.weekday || !item.locationId) return null;
+    if (item.startTime >= item.endTime) return null;
+    if (weekdays.has(item.weekday)) return null;
+    weekdays.add(item.weekday);
+  }
+
+  const exceptions: DraftException[] = [];
+  for (const item of form.exceptions) {
+    const emptyDates = !item.startDate && !item.endDate;
+    if (emptyDates && !persistedExceptionKeys.has(item.key)) continue;
+    if (validateExceptions([item])) return null;
+    exceptions.push(item);
+  }
+
+  return {
+    exceptionKeys: exceptions.map((item) => item.key),
+    body: {
+      name,
+      email: form.email.trim(),
+      imageUrl: form.imageUrl,
+      active: form.active,
+      primaryLocationId: form.primaryLocationId,
+      categoryIds: form.categoryIds,
+      schedules: form.schedules.map((item) => ({
+        weekday: item.weekday as Weekday,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        locationId: item.locationId,
+      })),
+      exceptions: exceptionPayload(exceptions),
+    },
+  };
 }
 
 function validateExceptions(items: DraftException[]) {
@@ -275,19 +299,136 @@ export function SellersPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const savedPayloadByIdRef = useRef(new Map<string, string>());
+  const persistedExceptionKeysRef = useRef(new Set<string>());
+  const saveTimerRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef<{
+    sellerId: string;
+    snapshot: string;
+    exceptionKeys: string[];
+  } | null>(null);
+  const saveChainRef = useRef(Promise.resolve());
+  const editingIdRef = useRef<string | null>(null);
+  const formRef = useRef(form);
+  editingIdRef.current = editingId;
+  formRef.current = form;
+
+  function enqueueSave(
+    sellerId: string,
+    snapshot: string,
+    exceptionKeys: string[],
+  ) {
+    saveChainRef.current = saveChainRef.current
+      .then(async () => {
+        if (savedPayloadByIdRef.current.get(sellerId) === snapshot) return;
+        setSaving(true);
+        try {
+          const data = await api<{ seller: Seller }>(`/sellers/${sellerId}`, {
+            method: "PUT",
+            body: snapshot,
+          });
+          savedPayloadByIdRef.current.set(sellerId, snapshot);
+          if (editingIdRef.current === sellerId) {
+            for (const key of exceptionKeys) {
+              persistedExceptionKeysRef.current.add(key);
+            }
+          }
+          setSellers((prev) =>
+            prev.map((item) => (item.id === data.seller.id ? data.seller : item)),
+          );
+          setError(null);
+          markSaved();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Opslaan mislukt");
+        } finally {
+          setSaving(false);
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  function scheduleSave(
+    sellerId: string,
+    snapshot: string,
+    exceptionKeys: string[],
+  ) {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    pendingSaveRef.current = { sellerId, snapshot, exceptionKeys };
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      pendingSaveRef.current = null;
+      enqueueSave(sellerId, snapshot, exceptionKeys);
+    }, 300);
+  }
+
+  function flushEditSave() {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const sellerId = editingIdRef.current;
+    if (!sellerId) {
+      pendingSaveRef.current = null;
+      return;
+    }
+    const built = buildAutoPayload(
+      formRef.current,
+      persistedExceptionKeysRef.current,
+    );
+    if (built) {
+      pendingSaveRef.current = null;
+      const snapshot = JSON.stringify(built.body);
+      if (savedPayloadByIdRef.current.get(sellerId) !== snapshot) {
+        enqueueSave(sellerId, snapshot, built.exceptionKeys);
+      }
+      return;
+    }
+    const pending = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    if (
+      pending &&
+      savedPayloadByIdRef.current.get(pending.sellerId) !== pending.snapshot
+    ) {
+      enqueueSave(pending.sellerId, pending.snapshot, pending.exceptionKeys);
+    }
+  }
+
+  useEffect(() => {
+    if (!editingId) return;
+    const built = buildAutoPayload(form, persistedExceptionKeysRef.current);
+    if (built) {
+      const snapshot = JSON.stringify(built.body);
+      if (savedPayloadByIdRef.current.get(editingId) === snapshot) {
+        pendingSaveRef.current = null;
+        if (saveTimerRef.current) {
+          window.clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        return;
+      }
+      scheduleSave(editingId, snapshot, built.exceptionKeys);
+      return;
+    }
+
+    const pending = pendingSaveRef.current;
+    const base =
+      pending?.sellerId === editingId
+        ? pending.snapshot
+        : savedPayloadByIdRef.current.get(editingId);
+    if (!base) return;
+    const parsed = JSON.parse(base) as { active: boolean };
+    if (parsed.active === form.active) return;
+    scheduleSave(
+      editingId,
+      JSON.stringify({ ...JSON.parse(base), active: form.active }),
+      pending?.sellerId === editingId ? pending.exceptionKeys : [],
+    );
+  }, [form, editingId]);
   const [sortKey, setSortKey] = useState<SellerSortKey | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const mediaEntityKey = selectedEntity?.slug || "global";
-
-  const availableWeekdays = useMemo(() => {
-    const used = new Set(
-      form.schedules
-        .map((item) => item.weekday)
-        .filter((day): day is Weekday => Boolean(day)),
-    );
-    return WEEKDAYS.filter((day) => !used.has(day.value));
-  }, [form.schedules]);
 
   const categoryOptions = useMemo<SelectOption[]>(
     () =>
@@ -419,6 +560,7 @@ export function SellersPage() {
   }
 
   function startCreate() {
+    flushEditSave();
     const entityId = selectedEntityId;
     setEditingId(null);
     setForm({
@@ -434,8 +576,7 @@ export function SellersPage() {
   }
 
   function startEdit(seller: Seller) {
-    setEditingId(seller.id);
-    setForm({
+    const next: FormState = {
       name: seller.name,
       email: seller.email,
       imageUrl: seller.imageUrl,
@@ -452,25 +593,38 @@ export function SellersPage() {
         locationId: item.locationId,
       })),
       exceptions: draftExceptions(seller),
-    });
+    };
+    persistedExceptionKeysRef.current = new Set(
+      (seller.exceptions ?? []).flatMap((item) => (item.id ? [item.id] : [])),
+    );
+    const built = buildAutoPayload(next, persistedExceptionKeysRef.current);
+    if (built) {
+      savedPayloadByIdRef.current.set(seller.id, JSON.stringify(built.body));
+    }
+    setEditingId(seller.id);
+    setForm(next);
     setShowForm(true);
     void loadEntityScopedData(seller.entityId);
   }
 
-  function addScheduleDay() {
-    const nextDay = availableWeekdays[0]?.value;
-    if (!nextDay) {
-      setError("Alle weekdagen zijn al toegevoegd");
-      return;
-    }
-    setError(null);
+  function updateSchedule(key: string, patch: Partial<DraftSchedule>) {
     setForm((prev) => ({
       ...prev,
-      schedules: [
-        ...prev.schedules,
-        newSchedule(nextDay, prev.primaryLocationId),
-      ],
+      schedules: prev.schedules.map((schedule) =>
+        schedule.key === key ? { ...schedule, ...patch } : schedule,
+      ),
     }));
+  }
+
+  function addScheduleWeekday(weekday: Weekday) {
+    setError(null);
+    setForm((prev) => {
+      if (prev.schedules.some((item) => item.weekday === weekday)) return prev;
+      return {
+        ...prev,
+        schedules: [...prev.schedules, newSchedule(weekday, prev.primaryLocationId)],
+      };
+    });
   }
 
   async function onImageChange(file: File | null) {
@@ -587,6 +741,11 @@ export function SellersPage() {
       ),
     );
 
+    if (editingId === seller.id) {
+      setForm((prev) => ({ ...prev, active: nextActive }));
+      return;
+    }
+
     try {
       await api(`/sellers/${seller.id}`, {
         method: "PUT",
@@ -623,17 +782,6 @@ export function SellersPage() {
     return WEEKDAYS.find((day) => day.value === value)?.label ?? value;
   }
 
-  function optionsForSchedule(current: DraftSchedule) {
-    const used = new Set(
-      form.schedules
-        .filter((item) => item.key !== current.key && item.weekday)
-        .map((item) => item.weekday),
-    );
-    return WEEKDAYS.filter(
-      (day) => !used.has(day.value) || day.value === current.weekday,
-    );
-  }
-
   function closeForm() {
     setShowForm(false);
     setEditingId(null);
@@ -641,9 +789,13 @@ export function SellersPage() {
   }
 
   function openSellerEdit(seller: Seller) {
-    if (showForm && editingId === seller.id) return;
-    if (showForm && editingId && editingId !== seller.id) return;
-    if (saving || uploading) return;
+    if (uploading) return;
+    if (showForm && editingId === seller.id) {
+      flushEditSave();
+      closeForm();
+      return;
+    }
+    flushEditSave();
     startEdit(seller);
   }
 
@@ -653,6 +805,32 @@ export function SellersPage() {
     return (
       <>
         <h2>{mode === "edit" ? "Verkoper bewerken" : "Nieuwe verkoper"}</h2>
+
+        <button
+          type="button"
+          className="seller-photo"
+          aria-label={form.imageUrl ? "Afbeelding wijzigen" : "Afbeelding kiezen"}
+          title={form.imageUrl ? "Afbeelding wijzigen" : "Afbeelding kiezen"}
+          disabled={uploading}
+          onClick={() => imageInputRef.current?.click()}
+        >
+          {form.imageUrl ? (
+            <img src={form.imageUrl} alt="" />
+          ) : (
+            <span aria-hidden="true">+</span>
+          )}
+        </button>
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            void onImageChange(file);
+          }}
+        />
 
         <div className="form-grid two">
           <label>
@@ -708,78 +886,50 @@ export function SellersPage() {
             </select>
           </label>
           <label>
-            Afbeelding
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) =>
-                void onImageChange(e.target.files?.[0] ?? null)
+            Categorieën
+            <Select
+              isMulti
+              classNamePrefix="rs"
+              options={categoryOptions}
+              value={categoryOptions.filter((option) =>
+                form.categoryIds.includes(option.value),
+              )}
+              onChange={(selected) =>
+                setForm((prev) => ({
+                  ...prev,
+                  categoryIds: selected.map((option) => option.value),
+                }))
               }
+              placeholder="Selecteer categorieën…"
+              noOptionsMessage={() => "Geen categorieën"}
             />
           </label>
         </div>
 
-        <label className="switch-row">
-          <span className="switch">
-            <input
-              type="checkbox"
-              checked={form.active}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, active: e.target.checked }))
-              }
-            />
-            <span className="switch-slider" />
-          </span>
-          <span>
-            <strong>{form.active ? "Actief" : "Inactief"}</strong>
-            <span className="muted" style={{ display: "block" }}>
-              Inactieve verkopers zijn tijdelijk niet zichtbaar in de
-              toepassing.
+        {mode === "create" ? (
+          <label className="switch-row">
+            <span className="switch">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, active: e.target.checked }))
+                }
+              />
+              <span className="switch-slider" />
             </span>
-          </span>
-        </label>
-
-        <label>
-          Categorieën
-          <Select
-            isMulti
-            classNamePrefix="rs"
-            options={categoryOptions}
-            value={categoryOptions.filter((option) =>
-              form.categoryIds.includes(option.value),
-            )}
-            onChange={(selected) =>
-              setForm((prev) => ({
-                ...prev,
-                categoryIds: selected.map((option) => option.value),
-              }))
-            }
-            placeholder="Selecteer categorieën…"
-            noOptionsMessage={() => "Geen categorieën"}
-          />
-        </label>
-
-        {uploading ? <p className="muted">Afbeelding uploaden…</p> : null}
-        {form.imageUrl ? (
-          <img
-            src={form.imageUrl}
-            alt={form.name || "Verkoper"}
-            style={{
-              width: 96,
-              height: 96,
-              objectFit: "cover",
-              borderRadius: 8,
-              border: "1px solid var(--line)",
-            }}
-          />
+            <span>
+              <strong>{form.active ? "Actief" : "Inactief"}</strong>
+              <span className="muted" style={{ display: "block" }}>
+                Inactieve verkopers zijn tijdelijk niet zichtbaar in de
+                toepassing.
+              </span>
+            </span>
+          </label>
         ) : null}
 
         <div className="stack">
           <h3>Werkschema</h3>
-          <p className="muted">
-            Elke weekdag kan maar één keer. Kies per dag start, einde en
-            locatie.
-          </p>
 
           {locations.length === 0 ? (
             <p className="error">
@@ -787,57 +937,85 @@ export function SellersPage() {
             </p>
           ) : null}
 
-          {form.schedules.map((item) => (
-            <div key={item.key} className="repeater-item">
-              <div className="panel-body stack">
-                <div className="form-grid two">
-                  <label>
-                    Weekdag
-                    <select
-                      value={item.weekday}
-                      onChange={(e) =>
+          <div className="schedule-week">
+            {WEEKDAYS.map((day) => {
+              const item = form.schedules.find(
+                (schedule) => schedule.weekday === day.value,
+              );
+
+              if (!item) {
+                return (
+                  <div key={day.value} className="schedule-day is-empty">
+                    <span className="schedule-day-name" title={day.label}>
+                      {day.short}
+                    </span>
+                    <button
+                      type="button"
+                      className="schedule-day-add"
+                      aria-label={`${day.label} toevoegen`}
+                      onClick={() => addScheduleWeekday(day.value)}
+                    >
+                      <span className="add-product-circle">+</span>
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={item.key} className="schedule-day">
+                  <div className="schedule-day-head">
+                    <span className="schedule-day-name" title={day.label}>
+                      {day.short}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-btn schedule-day-remove"
+                      aria-label={`${day.label} verwijderen`}
+                      title="Dag verwijderen"
+                      onClick={() =>
                         setForm((prev) => ({
                           ...prev,
-                          schedules: prev.schedules.map((schedule) =>
-                            schedule.key === item.key
-                              ? {
-                                  ...schedule,
-                                  weekday: e.target.value as Weekday,
-                                }
-                              : schedule,
+                          schedules: prev.schedules.filter(
+                            (schedule) => schedule.key !== item.key,
                           ),
                         }))
                       }
-                      required
                     >
-                      <option value="">Kies dag…</option>
-                      {optionsForSchedule(item).map((day) => (
-                        <option key={day.value} value={day.value}>
-                          {day.label}
-                        </option>
-                      ))}
-                    </select>
+                      <IconTrash />
+                    </button>
+                  </div>
+                  <label>
+                    Start
+                    <input
+                      type="time"
+                      value={item.startTime}
+                      onChange={(e) =>
+                        updateSchedule(item.key, { startTime: e.target.value })
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    Einde
+                    <input
+                      type="time"
+                      value={item.endTime}
+                      onChange={(e) =>
+                        updateSchedule(item.key, { endTime: e.target.value })
+                      }
+                      required
+                    />
                   </label>
                   <label>
                     Locatie
                     <select
                       value={item.locationId}
                       onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          schedules: prev.schedules.map((schedule) =>
-                            schedule.key === item.key
-                              ? {
-                                  ...schedule,
-                                  locationId: e.target.value,
-                                }
-                              : schedule,
-                          ),
-                        }))
+                        updateSchedule(item.key, { locationId: e.target.value })
                       }
                       required
                     >
-                      <option value="">Kies locatie…</option>
+                      <option value="">Kies…</option>
                       {locations.map((location) => (
                         <option key={location.id} value={location.id}>
                           {location.name}
@@ -845,87 +1023,31 @@ export function SellersPage() {
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Starttijd
-                    <input
-                      type="time"
-                      value={item.startTime}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          schedules: prev.schedules.map((schedule) =>
-                            schedule.key === item.key
-                              ? {
-                                  ...schedule,
-                                  startTime: e.target.value,
-                                }
-                              : schedule,
-                          ),
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    Eindtijd
-                    <input
-                      type="time"
-                      value={item.endTime}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          schedules: prev.schedules.map((schedule) =>
-                            schedule.key === item.key
-                              ? { ...schedule, endTime: e.target.value }
-                              : schedule,
-                          ),
-                        }))
-                      }
-                      required
-                    />
-                  </label>
                 </div>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-small"
-                    onClick={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        schedules: prev.schedules.filter(
-                          (schedule) => schedule.key !== item.key,
-                        ),
-                      }))
-                    }
-                  >
-                    Dag verwijderen
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          <div className="repeater-add">
-            <button
-              type="button"
-              className="add-product-btn"
-              onClick={addScheduleDay}
-              disabled={availableWeekdays.length === 0}
-            >
-              <span className="add-product-circle">+</span>
-              <span>Voeg werkdag toe</span>
-            </button>
+              );
+            })}
           </div>
         </div>
 
         <div className="stack">
-          <h3>Uitzonderingen</h3>
-          <p className="muted">
-            Een uitzondering telt bovenop het werkschema. Kies of de verkoper
-            die dagen niet of juist wel werkt. Stel in om de hoeveel dagen,
-            weken of maanden het terugkomt. Klik een datum weg om die dag
-            over te slaan.
-          </p>
+          <div className="section-heading">
+            <h3>Uitzonderingen</h3>
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={() =>
+                setForm((prev) => ({
+                  ...prev,
+                  exceptions: [
+                    ...prev.exceptions,
+                    newException(prev.primaryLocationId),
+                  ],
+                }))
+              }
+            >
+              + Uitzondering
+            </button>
+          </div>
 
           {form.exceptions.map((item) => {
             const generated =
@@ -936,15 +1058,11 @@ export function SellersPage() {
                 : [];
             const tooMany = generated.length > MAX_EXCEPTION_DATES;
             const visibleDates = tooMany ? [] : generated;
-            const includedCount = visibleDates.filter(
-              (date) => !item.excludedDates.includes(date),
-            ).length;
 
             return (
-              <div key={item.key} className="repeater-item">
-                <div className="panel-body stack">
-                  <fieldset className="exception-kind">
-                    <legend>Type</legend>
+              <div key={item.key} className="exception-card">
+                <div className="exception-fields stack">
+                  <div className="exception-fields-head">
                     <div className="segmented" role="radiogroup">
                       {(
                         [
@@ -975,7 +1093,23 @@ export function SellersPage() {
                         </label>
                       ))}
                     </div>
-                  </fieldset>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label="Uitzondering verwijderen"
+                      title="Uitzondering verwijderen"
+                      onClick={() =>
+                        setForm((prev) => ({
+                          ...prev,
+                          exceptions: prev.exceptions.filter(
+                            (exception) => exception.key !== item.key,
+                          ),
+                        }))
+                      }
+                    >
+                      <IconTrash />
+                    </button>
+                  </div>
 
                   <div className="form-grid two">
                     <label>
@@ -1014,70 +1148,70 @@ export function SellersPage() {
                         required
                       />
                     </label>
-                    <label>
-                      Herhaling
-                      <span className="repeat-every">
-                        <span className="repeat-every-prefix">Elke</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={MAX_REPEAT_EVERY}
-                          step={1}
-                          value={item.repeatEvery}
-                          onChange={(e) => {
-                            const next = Math.floor(Number(e.target.value));
-                            if (!Number.isFinite(next)) return;
-                            setForm((prev) => ({
-                              ...prev,
-                              exceptions: patchExceptions(
-                                prev.exceptions,
-                                item.key,
-                                {
-                                  repeatEvery: Math.min(
-                                    MAX_REPEAT_EVERY,
-                                    Math.max(1, next),
-                                  ),
-                                },
-                              ),
-                            }));
-                          }}
-                          required
-                        />
-                        <select
-                          value={item.repeatUnit}
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              exceptions: patchExceptions(
-                                prev.exceptions,
-                                item.key,
-                                {
-                                  repeatUnit: e.target
-                                    .value as ExceptionRepeatUnit,
-                                },
-                              ),
-                            }))
-                          }
-                        >
-                          <option value="DAY">
-                            {item.repeatEvery === 1 ? "dag" : "dagen"}
-                          </option>
-                          <option value="WEEK">
-                            {item.repeatEvery === 1 ? "week" : "weken"}
-                          </option>
-                          <option value="MONTH">
-                            {item.repeatEvery === 1 ? "maand" : "maanden"}
-                          </option>
-                        </select>
-                      </span>
-                    </label>
                   </div>
-                  <p className="muted">{repeatHint(item)}</p>
+                  <label>
+                    Herhaling
+                    <span className="repeat-every">
+                      <span className="repeat-every-prefix">Elke</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_REPEAT_EVERY}
+                        step={1}
+                        value={item.repeatEvery}
+                        onChange={(e) => {
+                          const next = Math.floor(Number(e.target.value));
+                          if (!Number.isFinite(next)) return;
+                          setForm((prev) => ({
+                            ...prev,
+                            exceptions: patchExceptions(
+                              prev.exceptions,
+                              item.key,
+                              {
+                                repeatEvery: Math.min(
+                                  MAX_REPEAT_EVERY,
+                                  Math.max(1, next),
+                                ),
+                              },
+                            ),
+                          }));
+                        }}
+                        required
+                      />
+                      <select
+                        value={item.repeatUnit}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            exceptions: patchExceptions(
+                              prev.exceptions,
+                              item.key,
+                              {
+                                repeatUnit: e.target
+                                  .value as ExceptionRepeatUnit,
+                              },
+                            ),
+                          }))
+                        }
+                      >
+                        <option value="DAY">
+                          {item.repeatEvery === 1 ? "dag" : "dagen"}
+                        </option>
+                        <option value="WEEK">
+                          {item.repeatEvery === 1 ? "week" : "weken"}
+                        </option>
+                        <option value="MONTH">
+                          {item.repeatEvery === 1 ? "maand" : "maanden"}
+                        </option>
+                      </select>
+                    </span>
+                  </label>
 
                   {item.kind === "WORKING" ? (
+                    <>
                     <div className="form-grid two">
                       <label>
-                        Starttijd
+                        Start
                         <input
                           type="time"
                           value={item.startTime}
@@ -1095,7 +1229,7 @@ export function SellersPage() {
                         />
                       </label>
                       <label>
-                        Eindtijd
+                        Einde
                         <input
                           type="time"
                           value={item.endTime}
@@ -1112,146 +1246,103 @@ export function SellersPage() {
                           required
                         />
                       </label>
-                      <label>
-                        Locatie
-                        <select
-                          value={item.locationId}
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              exceptions: patchExceptions(
-                                prev.exceptions,
-                                item.key,
-                                { locationId: e.target.value },
-                              ),
-                            }))
-                          }
-                          required
-                        >
-                          <option value="">Kies locatie…</option>
-                          {locations.map((location) => (
-                            <option key={location.id} value={location.id}>
-                              {location.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
                     </div>
+                    <label>
+                      Locatie
+                      <select
+                        value={item.locationId}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            exceptions: patchExceptions(
+                              prev.exceptions,
+                              item.key,
+                              { locationId: e.target.value },
+                            ),
+                          }))
+                        }
+                        required
+                      >
+                        <option value="">Kies…</option>
+                        {locations.map((location) => (
+                          <option key={location.id} value={location.id}>
+                            {location.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    </>
                   ) : null}
+                </div>
 
-                  {!item.startDate || !item.endDate ? (
-                    <p className="muted">
-                      Kies een begin- en einddatum. Daarna verschijnen de
-                      dagen die meedoen.
-                    </p>
-                  ) : item.startDate > item.endDate ? (
+                <div className="exception-dates-pane">
+                  {item.startDate &&
+                  item.endDate &&
+                  item.startDate > item.endDate ? (
                     <p className="error">
                       Einddatum moet op of na de begindatum liggen.
                     </p>
                   ) : tooMany ? (
                     <p className="error">
                       Deze reeks bevat meer dan {MAX_EXCEPTION_DATES} dagen.
-                      Kies een kortere periode.
                     </p>
                   ) : (
-                    <div className="stack">
-                      <p className="muted">
-                        {includedCount}{" "}
-                        {includedCount === 1 ? "dag" : "dagen"} in deze
-                        uitzondering. Klik een datum weg om die dag over te
-                        slaan.
-                      </p>
-                      <div className="exception-dates">
-                        {visibleDates.map((date) => {
-                          const excluded = item.excludedDates.includes(date);
-                          return (
-                            <button
-                              key={date}
-                              type="button"
-                              className={`exception-date${excluded ? " is-excluded" : ""}`}
-                              aria-pressed={!excluded}
-                              onClick={() =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  exceptions: patchExceptions(
-                                    prev.exceptions,
-                                    item.key,
-                                    {
-                                      excludedDates: excluded
-                                        ? item.excludedDates.filter(
-                                            (value) => value !== date,
-                                          )
-                                        : [...item.excludedDates, date],
-                                    },
-                                  ),
-                                }))
-                              }
-                            >
-                              {formatChipDate(date)}
-                            </button>
-                          );
-                        })}
-                      </div>
+                    <div className="exception-dates">
+                      {visibleDates.map((date) => {
+                        const excluded = item.excludedDates.includes(date);
+                        return (
+                          <button
+                            key={date}
+                            type="button"
+                            className={`exception-date${excluded ? " is-excluded" : ""}`}
+                            aria-pressed={!excluded}
+                            onClick={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                exceptions: patchExceptions(
+                                  prev.exceptions,
+                                  item.key,
+                                  {
+                                    excludedDates: excluded
+                                      ? item.excludedDates.filter(
+                                          (value) => value !== date,
+                                        )
+                                      : [...item.excludedDates, date],
+                                  },
+                                ),
+                              }))
+                            }
+                          >
+                            {formatChipDate(date)}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
-
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-small"
-                      onClick={() =>
-                        setForm((prev) => ({
-                          ...prev,
-                          exceptions: prev.exceptions.filter(
-                            (exception) => exception.key !== item.key,
-                          ),
-                        }))
-                      }
-                    >
-                      Uitzondering verwijderen
-                    </button>
-                  </div>
                 </div>
               </div>
             );
           })}
+        </div>
 
-          <div className="repeater-add">
+        {mode === "create" ? (
+          <div className="actions">
             <button
               type="button"
-              className="add-product-btn"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  exceptions: [
-                    ...prev.exceptions,
-                    newException(prev.primaryLocationId),
-                  ],
-                }))
-              }
+              className="btn btn-secondary"
+              onClick={closeForm}
             >
-              <span className="add-product-circle">+</span>
-              <span>Uitzondering</span>
+              Annuleren
+            </button>
+            <button
+              type="submit"
+              className="btn"
+              disabled={saving || uploading}
+            >
+              {saving ? "Opslaan…" : "Opslaan"}
             </button>
           </div>
-        </div>
-
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={closeForm}
-          >
-            Annuleren
-          </button>
-          <button
-            type="submit"
-            className="btn"
-            disabled={saving || uploading}
-          >
-            {saving ? "Opslaan…" : "Opslaan"}
-          </button>
-        </div>
+        ) : null}
       </>
     );
   }
@@ -1375,13 +1466,7 @@ export function SellersPage() {
                               className={`icon-btn${showForm && editingId === seller.id ? " is-active" : ""}`}
                               aria-label="Bewerken"
                               title="Bewerken"
-                              disabled={
-                                (showForm &&
-                                  Boolean(editingId) &&
-                                  editingId !== seller.id) ||
-                                saving ||
-                                uploading
-                              }
+                              disabled={uploading}
                               onClick={() => openSellerEdit(seller)}
                             >
                               <IconPencil />
@@ -1404,7 +1489,10 @@ export function SellersPage() {
                             <form
                               id="seller-form-edit"
                               className="table-expand-panel stack"
-                              onSubmit={onSubmit}
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                flushEditSave();
+                              }}
                             >
                               {renderSellerFormFields("edit")}
                             </form>
@@ -1531,13 +1619,7 @@ export function SellersPage() {
                               className={`icon-btn${showForm && editingId === seller.id ? " is-active" : ""}`}
                               aria-label="Bewerken"
                               title="Bewerken"
-                              disabled={
-                                (showForm &&
-                                  Boolean(editingId) &&
-                                  editingId !== seller.id) ||
-                                saving ||
-                                uploading
-                              }
+                              disabled={uploading}
                               onClick={() => openSellerEdit(seller)}
                             >
                               <IconPencil />
@@ -1560,7 +1642,10 @@ export function SellersPage() {
                             <form
                               id="seller-form-edit"
                               className="table-expand-panel stack"
-                              onSubmit={onSubmit}
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                flushEditSave();
+                              }}
                             >
                               {renderSellerFormFields("edit")}
                             </form>

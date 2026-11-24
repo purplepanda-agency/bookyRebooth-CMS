@@ -66,6 +66,9 @@ export function AppShell() {
           <NavLink to="/" end className={navClass}>
             Overzicht
           </NavLink>
+          <NavLink to="/settings" className={navClass}>
+            Algemene instellingen
+          </NavLink>
           {isSuper ? (
             <NavLink to="/activity" className={navClass}>
               Activiteit
@@ -81,9 +84,6 @@ export function AppShell() {
           ) : null}
           <NavLink to="/users" className={navClass}>
             Gebruikers
-          </NavLink>
-          <NavLink to="/settings" className={navClass}>
-            Algemene instellingen
           </NavLink>
 
           <div className="nav-divider" aria-hidden="true" />
