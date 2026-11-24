@@ -391,16 +391,7 @@ export function ActivityPage() {
                         </span>
                       </td>
                       <td>{typeLabel}</td>
-                      <td>
-                        <div className="activity-summary">
-                          <span>{what}</span>
-                          {entry.detail ? (
-                            <span className="activity-detail">
-                              {entry.detail}
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
+                      <td>{what}</td>
                       <td>{entry.entityName || "—"}</td>
                     </tr>
                   );

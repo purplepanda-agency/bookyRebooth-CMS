@@ -4,6 +4,7 @@ import { Navigate } from "react-router-dom";
 import { api, uploadMedia } from "../api/client";
 import type { Entity, ProductSet, ProductSetItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { IconPencil, IconTrash } from "../components/RowActionIcons";
 import { useSaveNotice } from "../components/SaveNotice";
 import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
@@ -59,17 +60,6 @@ function IconCheck() {
       <path
         fill="currentColor"
         d="M9.2 16.6 4.8 12.2l1.4-1.4 3 3 8.6-8.6 1.4 1.4-10 10z"
-      />
-    </svg>
-  );
-}
-
-function IconPencil() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M3 17.3V21h3.7L17.8 9.9l-3.7-3.7L3 17.3zm17.7-10.4c.4-.4.4-1 0-1.4l-2.2-2.2c-.4-.4-1-.4-1.4 0l-1.7 1.7 3.7 3.7 1.6-1.8z"
       />
     </svg>
   );
@@ -573,78 +563,81 @@ export function ProductSetsPage() {
             <tbody>
               {productSets.map((set) => (
                 <Fragment key={set.id}>
-                  <tr>
+                  <tr
+                    className={`row-clickable${showForm && editingId === set.id ? " is-open" : ""}`}
+                    onClick={() => toggleEdit(set)}
+                  >
                     <td>{set.name}</td>
-                  <td>
-                    {(set.entities ?? []).length === 0 ? (
-                      <span className="muted">Geen toegang</span>
-                    ) : (
+                    <td>
+                      {(set.entities ?? []).length === 0 ? (
+                        <span className="muted">Geen toegang</span>
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "0.35rem",
+                          }}
+                        >
+                          {(set.entities ?? []).map((entity) => (
+                            <span key={entity.id} className="badge">
+                              {entity.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td>
                       <div
                         style={{
                           display: "flex",
+                          gap: "0.5rem",
                           flexWrap: "wrap",
-                          gap: "0.35rem",
+                          alignItems: "center",
                         }}
                       >
-                        {(set.entities ?? []).map((entity) => (
-                          <span key={entity.id} className="badge">
-                            {entity.name}
-                          </span>
+                        {set.products.slice(0, 4).map((product) => (
+                          <img
+                            key={product.id ?? product.photoUrl}
+                            src={product.photoUrl}
+                            alt={product.name}
+                            title={product.name}
+                            style={{
+                              width: 40,
+                              height: 40,
+                              objectFit: "cover",
+                              borderRadius: 6,
+                              border: "1px solid var(--line)",
+                            }}
+                          />
                         ))}
+                        <span className="badge">{set.products.length}</span>
                       </div>
-                    )}
-                  </td>
-                  <td>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "0.5rem",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                      }}
-                    >
-                      {set.products.slice(0, 4).map((product) => (
-                        <img
-                          key={product.id ?? product.photoUrl}
-                          src={product.photoUrl}
-                          alt={product.name}
-                          title={product.name}
-                          style={{
-                            width: 40,
-                            height: 40,
-                            objectFit: "cover",
-                            borderRadius: 6,
-                            border: "1px solid var(--line)",
-                          }}
-                        />
-                      ))}
-                      <span className="badge">{set.products.length}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className={
-                          showForm && editingId === set.id
-                            ? "btn btn-small"
-                            : "btn btn-secondary btn-small"
-                        }
-                        disabled={uploadingKey !== null}
-                        onClick={() => toggleEdit(set)}
-                      >
-                        Bewerken
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-small"
-                        onClick={() => void onDelete(set.id)}
-                      >
-                        Verwijderen
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className={`icon-btn${showForm && editingId === set.id ? " is-active" : ""}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
+                          disabled={uploadingKey !== null}
+                          onClick={() => toggleEdit(set)}
+                        >
+                          <IconPencil />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-icon"
+                          aria-label="Verwijderen"
+                          title="Verwijderen"
+                          onClick={() => void onDelete(set.id)}
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                   {showForm && editingId === set.id ? (
                     <tr className="table-row-expand">
                       <td colSpan={tableColSpan}>

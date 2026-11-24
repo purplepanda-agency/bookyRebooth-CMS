@@ -3,6 +3,7 @@ import { api, uploadMedia } from "../api/client";
 import type { Category } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { IconPencil, IconTrash } from "../components/RowActionIcons";
 import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
 type FormState = {
@@ -104,7 +105,7 @@ export function CategoriesPage() {
     setCategories(data.categories);
   }
 
-  const { saving, flush, rememberBaseline } = useAutosaveEdit<CategoryPatchBody>({
+  const { flush, rememberBaseline } = useAutosaveEdit<CategoryPatchBody>({
     editingId,
     deps: form,
     buildBody: () => (editingId ? categoryPatchBody(form) : null),
@@ -148,6 +149,7 @@ export function CategoriesPage() {
   }
 
   function toggleEdit(category: Category) {
+    if (uploading) return;
     if (showForm && editingId === category.id) {
       flush();
       closeForm();
@@ -355,7 +357,10 @@ export function CategoriesPage() {
             <tbody>
               {categories.map((category) => (
                 <Fragment key={category.id}>
-                  <tr>
+                  <tr
+                    className={`row-clickable${showForm && editingId === category.id ? " is-open" : ""}`}
+                    onClick={() => toggleEdit(category)}
+                  >
                     <td>
                       <div
                         style={{
@@ -395,28 +400,26 @@ export function CategoriesPage() {
                     <td>
                       <span className="badge">{category.slug}</span>
                     </td>
-                    <td>
-                      <div className="actions">
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
                         <button
                           type="button"
-                          className={
-                            showForm && editingId === category.id
-                              ? "btn btn-small"
-                              : "btn btn-secondary btn-small"
-                          }
-                          disabled={
-                            editingId === category.id && (saving || uploading)
-                          }
+                          className={`icon-btn${showForm && editingId === category.id ? " is-active" : ""}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
+                          disabled={uploading}
                           onClick={() => toggleEdit(category)}
                         >
-                          Bewerken
+                          <IconPencil />
                         </button>
                         <button
                           type="button"
-                          className="btn btn-secondary btn-small"
+                          className="btn-icon"
+                          aria-label="Verwijderen"
+                          title="Verwijderen"
                           onClick={() => void onDelete(category.id)}
                         >
-                          Verwijderen
+                          <IconTrash />
                         </button>
                       </div>
                     </td>

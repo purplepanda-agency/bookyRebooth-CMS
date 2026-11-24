@@ -3,6 +3,7 @@ import { api, uploadMedia } from "../api/client";
 import type { Location } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { IconPencil, IconTrash } from "../components/RowActionIcons";
 import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
 type LocationPatchBody = {
@@ -120,7 +121,7 @@ export function LocationsPage() {
     setLocations(data.locations);
   }
 
-  const { saving, flush, rememberBaseline } = useAutosaveEdit<LocationPatchBody>({
+  const { flush, rememberBaseline } = useAutosaveEdit<LocationPatchBody>({
     editingId,
     deps: form,
     buildBody: () => (editingId ? locationPatchBody(form) : null),
@@ -166,6 +167,7 @@ export function LocationsPage() {
   }
 
   function toggleEdit(location: Location) {
+    if (uploading) return;
     if (showForm && editingId === location.id) {
       flush();
       closeForm();
@@ -415,7 +417,10 @@ export function LocationsPage() {
             <tbody>
               {locations.map((location) => (
                 <Fragment key={location.id}>
-                  <tr>
+                  <tr
+                    className={`row-clickable${showForm && editingId === location.id ? " is-open" : ""}`}
+                    onClick={() => toggleEdit(location)}
+                  >
                     <td>
                       <div
                         style={{
@@ -444,28 +449,26 @@ export function LocationsPage() {
                     <td>
                       <span className="badge">{location.permalink}</span>
                     </td>
-                    <td>
-                      <div className="actions">
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
                         <button
                           type="button"
-                          className={
-                            showForm && editingId === location.id
-                              ? "btn btn-small"
-                              : "btn btn-secondary btn-small"
-                          }
-                          disabled={
-                            editingId === location.id && (saving || uploading)
-                          }
+                          className={`icon-btn${showForm && editingId === location.id ? " is-active" : ""}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
+                          disabled={uploading}
                           onClick={() => toggleEdit(location)}
                         >
-                          Bewerken
+                          <IconPencil />
                         </button>
                         <button
                           type="button"
-                          className="btn btn-secondary btn-small"
+                          className="btn-icon"
+                          aria-label="Verwijderen"
+                          title="Verwijderen"
                           onClick={() => void onDelete(location.id)}
                         >
-                          Verwijderen
+                          <IconTrash />
                         </button>
                       </div>
                     </td>

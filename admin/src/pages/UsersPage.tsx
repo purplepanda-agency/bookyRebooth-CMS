@@ -3,6 +3,7 @@ import Select from "react-select";
 import { api } from "../api/client";
 import type { Role, User } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
+import { IconPencil, IconTrash } from "../components/RowActionIcons";
 import { useSaveNotice } from "../components/SaveNotice";
 import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
@@ -490,33 +491,26 @@ export function UsersPage() {
                     </td>
                     <td>{formatLastLogin(item.lastLoggedInAt)}</td>
                     <td onClick={(event) => event.stopPropagation()}>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: "0.35rem",
-                          justifyContent: "flex-end",
-                        }}
-                      >
+                      <div className="row-actions">
                         <button
                           type="button"
-                          className={
-                            showForm && editingId === item.id
-                              ? "btn btn-small"
-                              : "btn btn-secondary btn-small"
-                          }
+                          className={`icon-btn${showForm && editingId === item.id ? " is-active" : ""}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
                           onClick={() => toggleEdit(item)}
                         >
-                          Bewerken
+                          <IconPencil />
                         </button>
                         {isSuper && item.id !== user?.id ? (
                           <button
                             type="button"
-                            className="btn btn-secondary btn-small"
+                            className="btn-icon"
+                            aria-label="Verwijderen"
+                            title="Verwijderen"
                             disabled={saving || savingCreate}
                             onClick={() => void onDelete(item)}
                           >
-                            Verwijderen
+                            <IconTrash />
                           </button>
                         ) : null}
                       </div>

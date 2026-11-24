@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { Entity } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { IconPencil } from "../components/RowActionIcons";
 import { useSaveNotice } from "../components/SaveNotice";
 import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
@@ -59,7 +60,7 @@ export function EntitiesPage() {
   const [showForm, setShowForm] = useState(false);
   const tableColSpan = 5;
 
-  const { saving, flush, rememberBaseline } = useAutosaveEdit<EntityPatchBody>({
+  const { flush, rememberBaseline } = useAutosaveEdit<EntityPatchBody>({
     editingId,
     deps: form,
     buildBody: () => (editingId ? entityPatchBody(form) : null),
@@ -317,7 +318,10 @@ export function EntitiesPage() {
             <tbody>
               {entities.map((entity) => (
                 <Fragment key={entity.id}>
-                  <tr>
+                  <tr
+                    className={`row-clickable${showForm && editingId === entity.id ? " is-open" : ""}`}
+                    onClick={() => toggleEdit(entity)}
+                  >
                     <td>{entity.name}</td>
                     <td>
                       <span className="badge">{entity.slug}</span>
@@ -336,19 +340,18 @@ export function EntitiesPage() {
                       ) : null}
                     </td>
                     <td>{entity._count?.users ?? 0}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className={
-                          showForm && editingId === entity.id
-                            ? "btn btn-small"
-                            : "btn btn-secondary btn-small"
-                        }
-                        disabled={editingId === entity.id && saving}
-                        onClick={() => toggleEdit(entity)}
-                      >
-                        Bewerken
-                      </button>
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className={`icon-btn${showForm && editingId === entity.id ? " is-active" : ""}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
+                          onClick={() => toggleEdit(entity)}
+                        >
+                          <IconPencil />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {showForm && editingId === entity.id ? (

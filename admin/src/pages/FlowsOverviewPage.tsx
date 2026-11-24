@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { Flow } from "../api/types";
+import { IconPencil, IconTrash } from "../components/RowActionIcons";
 import { useAccessibleEntities } from "../auth/entityAccess";
 
 function IconChevronUp() {
@@ -231,9 +232,13 @@ export function FlowsOverviewPage() {
                 const busy = reorderingId === flow.id;
 
                 return (
-                  <tr key={flow.id}>
-                    <td>
-                      <div className="actions" style={{ gap: "0.25rem" }}>
+                  <tr
+                    key={flow.id}
+                    className="row-clickable"
+                    onClick={() => navigate(`/new-flow/${flow.id}`)}
+                  >
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
                         <button
                           type="button"
                           className="icon-btn"
@@ -295,7 +300,7 @@ export function FlowsOverviewPage() {
                     <td>
                       <span className="badge">{flow.slug || "—"}</span>
                     </td>
-                    <td>
+                    <td onClick={(event) => event.stopPropagation()}>
                       <label className="switch-row switch-row-compact">
                         <span className="switch">
                           <input
@@ -316,20 +321,24 @@ export function FlowsOverviewPage() {
                     <td>
                       <span className="badge">{flow._count?.steps ?? 0}</span>
                     </td>
-                    <td>
-                      <div className="actions">
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
                         <Link
-                          className="btn btn-secondary btn-small"
+                          className="icon-btn"
                           to={`/new-flow/${flow.id}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
                         >
-                          Bewerken
+                          <IconPencil />
                         </Link>
                         <button
                           type="button"
-                          className="btn btn-secondary btn-small"
+                          className="btn-icon"
+                          aria-label="Verwijderen"
+                          title="Verwijderen"
                           onClick={() => void onDelete(flow.id)}
                         >
-                          Verwijderen
+                          <IconTrash />
                         </button>
                       </div>
                     </td>

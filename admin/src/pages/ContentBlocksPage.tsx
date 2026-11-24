@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { ContentBlock, ContentBlockButton } from "../api/types";
 import { useAccessibleEntities } from "../auth/entityAccess";
 import { useSaveNotice } from "../components/SaveNotice";
+import { IconPencil, IconTrash } from "../components/RowActionIcons";
 import { useAutosaveEdit } from "../hooks/useAutosaveEdit";
 
 type ContentBlockPutBody = {
@@ -155,7 +156,7 @@ export function ContentBlocksPage() {
     setStepOptions(optionsData.options);
   }
 
-  const { saving, flush, rememberBaseline } =
+  const { flush, rememberBaseline } =
     useAutosaveEdit<ContentBlockPutBody>({
       editingId,
       deps: form,
@@ -522,8 +523,11 @@ export function ContentBlocksPage() {
             <tbody>
               {blocks.map((block) => (
                 <Fragment key={block.id}>
-                  <tr>
-                    <td>
+                  <tr
+                    className={`row-clickable${showForm && editingId === block.id ? " is-open" : ""}`}
+                    onClick={() => toggleEdit(block)}
+                  >
+                    <td onClick={(event) => event.stopPropagation()}>
                       <label className="switch-row switch-row-compact">
                         <span className="switch">
                           <input
@@ -557,26 +561,25 @@ export function ContentBlocksPage() {
                         </div>
                       )}
                     </td>
-                    <td>
-                      <div className="actions">
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <div className="row-actions">
                         <button
                           type="button"
-                          className={
-                            showForm && editingId === block.id
-                              ? "btn btn-small"
-                              : "btn btn-secondary btn-small"
-                          }
-                          disabled={editingId === block.id && saving}
+                          className={`icon-btn${showForm && editingId === block.id ? " is-active" : ""}`}
+                          aria-label="Bewerken"
+                          title="Bewerken"
                           onClick={() => toggleEdit(block)}
                         >
-                          Bewerken
+                          <IconPencil />
                         </button>
                         <button
                           type="button"
-                          className="btn btn-secondary btn-small"
+                          className="btn-icon"
+                          aria-label="Verwijderen"
+                          title="Verwijderen"
                           onClick={() => void onDelete(block)}
                         >
-                          Verwijderen
+                          <IconTrash />
                         </button>
                       </div>
                     </td>
