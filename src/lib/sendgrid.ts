@@ -1,7 +1,8 @@
 import { env } from "../config/env.js";
+import { normalizeHost } from "./domain.js";
 
 function hasSendGridAuth() {
-  return Boolean(env.SENDGRID_API_KEY && env.SENDGRID_FROM_EMAIL);
+  return Boolean(env.SENDGRID_API_KEY);
 }
 
 export function isSendGridConfigured() {
@@ -15,7 +16,6 @@ export function isSellerBookingMailConfigured() {
 export function sendGridMissingConfig(): string[] {
   const missing: string[] = [];
   if (!env.SENDGRID_API_KEY) missing.push("SENDGRID_API_KEY");
-  if (!env.SENDGRID_FROM_EMAIL) missing.push("SENDGRID_FROM_EMAIL");
   if (!env.SENDGRID_BOOKING_TEMPLATE_ID) {
     missing.push("SENDGRID_BOOKING_TEMPLATE_ID");
   }
@@ -25,11 +25,57 @@ export function sendGridMissingConfig(): string[] {
 export function sellerSendGridMissingConfig(): string[] {
   const missing: string[] = [];
   if (!env.SENDGRID_API_KEY) missing.push("SENDGRID_API_KEY");
-  if (!env.SENDGRID_FROM_EMAIL) missing.push("SENDGRID_FROM_EMAIL");
   if (!env.SENDGRID_SELLER_BOOKING_TEMPLATE_ID) {
     missing.push("SENDGRID_SELLER_BOOKING_TEMPLATE_ID");
   }
   return missing;
+}
+
+const DEFAULT_EMAIL_FROM_LOCAL = "booky";
+
+/** Afzenderadres: [local]@[front-enddomein], local default = booky */
+export function bookingFromEmailFromDomain(
+  domain: string | null | undefined,
+  emailFromLocal?: string | null,
+): string | null {
+  if (!domain?.trim()) return null;
+  const host = normalizeHost(domain);
+  if (!host || isLocalHostLike(host)) return null;
+  const local =
+    emailFromLocal?.trim().toLowerCase() || DEFAULT_EMAIL_FROM_LOCAL;
+  return `${local}@${host}`;
+}
+
+function isLocalHostLike(host: string) {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".localhost")
+  );
+}
+
+export type MailSender = {
+  email: string;
+  name: string;
+};
+
+export function resolveMailSender(input: {
+  domain: string | null | undefined;
+  emailFromLocal?: string | null;
+  emailFromName: string | null | undefined;
+  entityName?: string | null;
+}): MailSender | null {
+  const email = bookingFromEmailFromDomain(
+    input.domain,
+    input.emailFromLocal,
+  );
+  if (!email) return null;
+  const name =
+    input.emailFromName?.trim() ||
+    input.entityName?.trim() ||
+    email;
+  return { email, name };
 }
 
 /** Exact SendGrid handlebars keys from the customer template. */
@@ -127,13 +173,12 @@ export function buildSellerBookingMailData(input: {
 async function sendSendGridTemplate(input: {
   toEmail: string;
   toName?: string;
+  from: MailSender;
   templateId: string;
   data: Record<string, string>;
 }) {
   if (!hasSendGridAuth()) {
-    throw new Error(
-      "SendGrid is niet geconfigureerd (SENDGRID_API_KEY, SENDGRID_FROM_EMAIL)",
-    );
+    throw new Error("SendGrid is niet geconfigureerd (SENDGRID_API_KEY)");
   }
 
   const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
@@ -155,8 +200,8 @@ async function sendSendGridTemplate(input: {
         },
       ],
       from: {
-        email: env.SENDGRID_FROM_EMAIL,
-        name: env.SENDGRID_FROM_NAME || env.SENDGRID_FROM_EMAIL,
+        email: input.from.email,
+        name: input.from.name,
       },
       template_id: input.templateId,
     }),
@@ -171,17 +216,19 @@ async function sendSendGridTemplate(input: {
 export async function sendBookingConfirmationEmail(input: {
   toEmail: string;
   toName?: string;
+  from: MailSender;
   data: BookingMailData;
 }) {
   if (!isSendGridConfigured()) {
     throw new Error(
-      "SendGrid is niet geconfigureerd (SENDGRID_API_KEY, SENDGRID_FROM_EMAIL, SENDGRID_BOOKING_TEMPLATE_ID)",
+      "SendGrid is niet geconfigureerd (SENDGRID_API_KEY, SENDGRID_BOOKING_TEMPLATE_ID)",
     );
   }
 
   await sendSendGridTemplate({
     toEmail: input.toEmail,
     toName: input.toName,
+    from: input.from,
     templateId: env.SENDGRID_BOOKING_TEMPLATE_ID!,
     data: input.data,
   });
@@ -190,17 +237,19 @@ export async function sendBookingConfirmationEmail(input: {
 export async function sendSellerBookingEmail(input: {
   toEmail: string;
   toName?: string;
+  from: MailSender;
   data: SellerBookingMailData;
 }) {
   if (!isSellerBookingMailConfigured()) {
     throw new Error(
-      "SendGrid verkoper-mail is niet geconfigureerd (SENDGRID_API_KEY, SENDGRID_FROM_EMAIL, SENDGRID_SELLER_BOOKING_TEMPLATE_ID)",
+      "SendGrid verkoper-mail is niet geconfigureerd (SENDGRID_API_KEY, SENDGRID_SELLER_BOOKING_TEMPLATE_ID)",
     );
   }
 
   await sendSendGridTemplate({
     toEmail: input.toEmail,
     toName: input.toName,
+    from: input.from,
     templateId: env.SENDGRID_SELLER_BOOKING_TEMPLATE_ID!,
     data: input.data,
   });

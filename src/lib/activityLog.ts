@@ -53,6 +53,8 @@ const FIELD_LABEL: Record<string, string> = {
   entities: "entiteiten",
   entiteiten: "entiteiten",
   domain: "domein",
+  emailFromLocal: "From-adres",
+  emailFromName: "From name (email)",
   logoUrl: "logo",
   introText: "introtekst",
   emailExtraTxt: "extra e-mailtekst",

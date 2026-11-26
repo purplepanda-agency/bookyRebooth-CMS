@@ -11,6 +11,7 @@ import {
   formatAppointmentTime,
   isSellerBookingMailConfigured,
   isSendGridConfigured,
+  resolveMailSender,
   sendBookingConfirmationEmail,
   sendGridMissingConfig,
   sendSellerBookingEmail,
@@ -400,7 +401,14 @@ export async function createBooking(
 
     const entity = await prisma.entity.findUnique({
       where: { id: input.entityId },
-      select: { emailExtraTxt: true, logoUrl: true },
+      select: {
+        name: true,
+        domain: true,
+        emailFromLocal: true,
+        emailFromName: true,
+        emailExtraTxt: true,
+        logoUrl: true,
+      },
     });
     const publicBaseUrl = resolvePublicBaseUrl(input.publicBaseUrl);
     const entityLogo = absoluteMediaUrl(entity?.logoUrl, publicBaseUrl);
@@ -415,12 +423,19 @@ export async function createBooking(
     );
     const locationId = location?.id ?? null;
     const categoryId = category?.id ?? null;
+    const mailFrom = resolveMailSender({
+      domain: entity?.domain,
+      emailFromLocal: entity?.emailFromLocal,
+      emailFromName: entity?.emailFromName,
+      entityName: entity?.name,
+    });
 
-    if (isSendGridConfigured()) {
+    if (isSendGridConfigured() && mailFrom) {
       try {
         await sendBookingConfirmationEmail({
           toEmail: input.customer.email,
           toName: customerName,
+          from: mailFrom,
           data: buildBookingMailData({
             locationName: location?.name || locationLabel,
             locationAddress: location?.address || "",
@@ -448,8 +463,9 @@ export async function createBooking(
       }
     } else {
       const missing = sendGridMissingConfig();
-      mailError =
-        missing.length > 0
+      mailError = !mailFrom
+        ? "Afzender-e-mail ontbreekt: vul een domein in bij Domeininstellingen (booky@[domein])"
+        : missing.length > 0
           ? `SendGrid is niet geconfigureerd (ontbreekt: ${missing.join(", ")})`
           : "SendGrid is niet geconfigureerd";
       trackEvent({
@@ -462,11 +478,12 @@ export async function createBooking(
       });
     }
 
-    if (isSellerBookingMailConfigured()) {
+    if (isSellerBookingMailConfigured() && mailFrom) {
       try {
         await sendSellerBookingEmail({
           toEmail: chosen.email,
           toName: chosen.name,
+          from: mailFrom,
           data: buildSellerBookingMailData({
             entityLogo,
             locationImage,
@@ -499,8 +516,9 @@ export async function createBooking(
       }
     } else {
       const missing = sellerSendGridMissingConfig();
-      const sellerMissing =
-        missing.length > 0
+      const sellerMissing = !mailFrom
+        ? "Afzender-e-mail ontbreekt: vul een domein in bij Domeininstellingen (booky@[domein])"
+        : missing.length > 0
           ? `SendGrid verkoper-mail niet geconfigureerd (ontbreekt: ${missing.join(", ")})`
           : "SendGrid verkoper-mail niet geconfigureerd";
       console.warn(`[booking] ${sellerMissing}`);

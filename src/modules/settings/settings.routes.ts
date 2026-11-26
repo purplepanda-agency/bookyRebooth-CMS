@@ -24,6 +24,8 @@ const entitySettingsSelect = {
   name: true,
   slug: true,
   domain: true,
+  emailFromLocal: true,
+  emailFromName: true,
   logoUrl: true,
   introText: true,
   emailExtraTxt: true,
@@ -85,6 +87,8 @@ settingsRouter.patch("/domain", async (req, res, next) => {
       where: { id: scope.entityId },
       data: {
         domain,
+        emailFromLocal: body.emailFromLocal,
+        emailFromName: body.emailFromName,
         maintenanceMode: body.maintenanceMode,
       },
       select: entitySettingsSelect,

@@ -30,8 +30,6 @@ const envSchema = z.object({
   AZURE_CLIENT_SECRET: optionalString,
   AZURE_TIMEZONE: z.string().default("Europe/Brussels"),
   SENDGRID_API_KEY: optionalString,
-  SENDGRID_FROM_EMAIL: optionalString,
-  SENDGRID_FROM_NAME: optionalString,
   SENDGRID_BOOKING_TEMPLATE_ID: optionalString,
   SENDGRID_SELLER_BOOKING_TEMPLATE_ID: optionalString,
   PUBLIC_BASE_URL: optionalString,

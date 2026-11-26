@@ -11,6 +11,8 @@ export type Entity = EntitySummary & {
   active: boolean;
   maintenanceMode?: boolean;
   domain?: string | null;
+  emailFromLocal?: string | null;
+  emailFromName?: string | null;
   createdAt?: string;
   updatedAt?: string;
   _count?: { users: number };

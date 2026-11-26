@@ -61,6 +61,8 @@ model Entity {
   name       String
   slug       String     @unique
   domain     String?
+  emailFromLocal    String?    @db.VarChar(64)
+  emailFromName     String?    @db.VarChar(120)
   logoUrl         String?    @db.Text
   introText       String?    @db.VarChar(500)
   emailExtraTxt   String?    @db.LongText

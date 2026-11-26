@@ -35,8 +35,26 @@ const hexColorSchema = z
     return hex;
   });
 
+const emailFromLocalSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(64)
+  .refine(
+    (value) =>
+      value === "" || /^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?$/.test(value),
+    "Ongeldig From-adres (alleen het deel vóór @)",
+  )
+  .transform((value) => value || null);
+
 export const updateDomainSettingsSchema = z.object({
   domain: domainSchema,
+  emailFromLocal: emailFromLocalSchema,
+  emailFromName: z
+    .string()
+    .trim()
+    .max(120)
+    .transform((value) => value || null),
   maintenanceMode: z.boolean(),
   entityId: z.string().cuid().optional(),
 });

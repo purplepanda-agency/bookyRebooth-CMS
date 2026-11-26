@@ -92,6 +92,8 @@ export function GeneralSettingsPage() {
   const [availableCount, setAvailableCount] = useState(0);
   const [checkedCount, setCheckedCount] = useState(0);
   const [domainValue, setDomainValue] = useState("");
+  const [emailFromLocal, setEmailFromLocal] = useState("");
+  const [emailFromName, setEmailFromName] = useState("");
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [domainEntityName, setDomainEntityName] = useState("");
   const [loadingDomain, setLoadingDomain] = useState(false);
@@ -352,11 +354,15 @@ export function GeneralSettingsPage() {
             name: string;
             slug: string;
             domain: string | null;
+            emailFromLocal: string | null;
+            emailFromName: string | null;
             maintenanceMode: boolean;
           };
         }>(`/settings/domain${query}`);
         if (cancelled) return;
         setDomainValue(data.entity.domain || "");
+        setEmailFromLocal(data.entity.emailFromLocal || "");
+        setEmailFromName(data.entity.emailFromName || "");
         setMaintenanceMode(Boolean(data.entity.maintenanceMode));
         setDomainEntityName(data.entity.name);
       } catch (err) {
@@ -493,17 +499,23 @@ export function GeneralSettingsPage() {
         entity: {
           name: string;
           domain: string | null;
+          emailFromLocal: string | null;
+          emailFromName: string | null;
           maintenanceMode: boolean;
         };
       }>("/settings/domain", {
         method: "PATCH",
         body: JSON.stringify({
           domain: domainValue,
+          emailFromLocal,
+          emailFromName,
           maintenanceMode,
           ...(entityId ? { entityId } : {}),
         }),
       });
       setDomainValue(data.entity.domain || "");
+      setEmailFromLocal(data.entity.emailFromLocal || "");
+      setEmailFromName(data.entity.emailFromName || "");
       setMaintenanceMode(Boolean(data.entity.maintenanceMode));
       setDomainEntityName(data.entity.name);
       markSaved("domain");
@@ -1162,6 +1174,46 @@ export function GeneralSettingsPage() {
                     value={domainValue}
                     onChange={(e) => setDomainValue(e.target.value)}
                     placeholder="bijv. booking.belien.be"
+                  />
+                </label>
+                <div style={{ maxWidth: 520 }}>
+                  <span style={{ display: "block", marginBottom: "0.35rem" }}>
+                    From-adres
+                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <input
+                      value={emailFromLocal}
+                      onChange={(e) => setEmailFromLocal(e.target.value)}
+                      placeholder="booky"
+                      style={{ maxWidth: 180 }}
+                      aria-label="From-adres (deel vóór @)"
+                    />
+                    <span className="muted" style={{ whiteSpace: "nowrap" }}>
+                      @
+                      {domainValue.trim()
+                        ? domainValue
+                            .trim()
+                            .toLowerCase()
+                            .replace(/^https?:\/\//, "")
+                            .split("/")[0]
+                            ?.replace(/^www\./, "")
+                        : "[domein]"}
+                    </span>
+                  </div>
+                </div>
+                <label style={{ maxWidth: 420 }}>
+                  From name (email)
+                  <input
+                    value={emailFromName}
+                    onChange={(e) => setEmailFromName(e.target.value)}
+                    placeholder="bijv. Beliën Automotive"
                   />
                 </label>
                 <label className="switch-row">
